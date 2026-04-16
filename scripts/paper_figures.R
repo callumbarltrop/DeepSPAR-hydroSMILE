@@ -164,7 +164,7 @@ if(fit_QR){
   
   # Create a checkpoint for fitting the model 
   
-  checkpoint <- callback_model_checkpoint(filepath = "../QR_est/qr_fit",
+  checkpoint <- callback_model_checkpoint(filepath = "../QR_est/nn_parameters/qr_fit",
                                           monitor = "val_loss",
                                           verbose = 0,
                                           save_best_only = TRUE,
@@ -194,23 +194,23 @@ if(fit_QR){
 
   # Load the best model weights from the saved checkpoint 
   
-  quant.model <- load_model_weights_tf(quant.model, filepath = "../QR_est/qr_fit")
+  quant.model <- load_model_weights_tf(quant.model, filepath = "../QR_est/nn_parameters/qr_fit")
 
   # Save the best tf model
   
-  save_model_tf(quant.model, "../QR_est/qr_fit")
+  save_model_tf(quant.model, "../QR_est/nn_parameters/qr_fit")
   
 }
 
 # Load in best fitting tf model 
 
-quant.model <- tf$saved_model$load("../QR_est/qr_fit")
+quant.model <- tf$saved_model$load("../QR_est/nn_parameters/qr_fit")
 
 # Compute estimated quantile over all observed angles 
 
 u <- k_get_value(quant.model(k_constant(W)))
  
-# Fit GPD over angles  ------------------------------------------
+# Fit GPD to threshold exceeding observations ------------------------------------------
 
 # Create training and validation data sets for GPD model 
 # Note that we only compute positive threshold exceedances 
@@ -313,7 +313,7 @@ if(fit_GPD){
   
   # Create a checkpoint for fitting the model 
   
-  checkpoint <- callback_model_checkpoint(filepath = paste0("runs/GPD_est/tmp_paper_fig/gpd_fit_{epoch:02d}"),
+  checkpoint <- callback_model_checkpoint(filepath = paste0("../QR_est/nn_parameters/GPD_est/tmp_paper_fig/gpd_fit_{epoch:02d}"),
                                           monitor = "val_loss",
                                           verbose = 0,
                                           save_best_only = FALSE,
@@ -338,13 +338,13 @@ if(fit_GPD){
   optimal_epoch <- which.min(history$metrics$val_loss)
 
   GPD.model <- load_model_weights_tf(GPD.model,
-                                     filepath = paste0("runs/GPD_est/tmp_paper_fig/gpd_fit_",sprintf("%02d", optimal_epoch-1)))
+                                     filepath = paste0("../QR_est/nn_parameters/GPD_est/tmp_paper_fig/gpd_fit_",sprintf("%02d", optimal_epoch-1)))
 
   save_model_weights_tf(GPD.model,
-                        paste0("runs/GPD_est/tmp_paper_fig/gpd_fit_best"))
+                        paste0("../QR_est/nn_parameters/GPD_est/tmp_paper_fig/gpd_fit_best"))
 
   save_model_tf(GPD.model,
-                paste0("runs/GPD_est/gpd_fit_","paper_fig"))
+                paste0("../QR_est/nn_parameters/GPD_est/gpd_fit_","paper_fig"))
 
   # Load best validation loss value
   best.valid.loss <- history$metrics$val_loss[which.min(history$metrics$val_loss)-1]
@@ -393,31 +393,31 @@ if(fit_GPD){
     if (!is.na(optimal_epoch)) {
 
       GPD.model <- load_model_weights_tf(GPD.model,
-                                         filepath = paste0("runs/GPD_est/tmp_paper_fig/gpd_fit_",sprintf("%02d", optimal_epoch)))
+                                         filepath = paste0("../QR_est/nn_parameters/GPD_est/tmp_paper_fig/gpd_fit_",sprintf("%02d", optimal_epoch)))
 
       save_model_weights_tf(GPD.model,
-                            paste0("runs/GPD_est/tmp_paper_fig/gpd_fit_best"))
+                            paste0("../QR_est/nn_parameters/GPD_est/tmp_paper_fig/gpd_fit_best"))
 
       save_model_tf(GPD.model,
-                    paste0("runs/GPD_est/gpd_fit_","paper_fig"))
+                    paste0("../QR_est/nn_parameters/GPD_est/gpd_fit_","paper_fig"))
 
     } else{
 
       load_model_weights_tf(GPD.model,
-                            paste0("runs/GPD_est/tmp_paper_fig/gpd_fit_best"))
+                            paste0("../QR_est/nn_parameters/GPD_est/tmp_paper_fig/gpd_fit_best"))
 
     }
 
   }
 
 
-  unlink(paste0("runs/GPD_est/tmp_paper_fig"),recursive = T, force = T)
+  unlink(paste0("../QR_est/nn_parameters/GPD_est/tmp_paper_fig"),recursive = T, force = T)
   
 }
 
 
 
-GPD.model <- load_model_tf(filepath = paste0("runs/GPD_est/gpd_fit_","paper_fig"),
+GPD.model <- load_model_tf(filepath = paste0("../QR_est/nn_parameters/GPD_est/gpd_fit_","paper_fig"),
                           custom_objects = list(GPD_loss=GPD_loss))
 
 #Validation 
@@ -949,29 +949,3 @@ text(-7,10,label = expression(bold(X[1]^2 + X[2]^2 > 5^2)),cex=1.6,col="blue",fo
 points(X.sim.excess[rowSums(X.sim.excess^2)>25,],pch=16,col="blue", cex = 0.7)
 
 dev.off()
-
-# png(
-#   filename = paste0("Plots/SPAR_illustration_old",".png"),
-#   width = 4500, height = 1500, res = 400
-# )
-# 
-# par(mgp = c(2.8, 0.7, 0))
-# 
-# par(mfrow=c(1,3))
-# 
-# plot(X.norm, pch = 16, col = rgb(0.5, 0.5, 0.5, 1), cex = 0.7,xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,xlim=c(-10,10),ylim=c(-10,10))
-# 
-# plot(X.norm[which(pred.quant >= R),], pch = 16, col = rgb(0.5, 0.5, 0.5, 1), cex = 0.7,xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,xlim=c(-10,10),ylim=c(-10,10))
-# points(X.norm.excess,pch=16,col = rgb(0, 1, 0, 1),cex=0.7)
-# lines(quant.set,lwd=3,col="red")
-# 
-# plot(X.norm.excess, pch = 16, col = rgb(0, 1, 0, 1), cex = 0.7,xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,xlim=c(-10,10),ylim=c(-10,10))
-# lines(quant.set,lwd=3,col="red")
-# rect(quant.set.maxima,-15,15,15,col = rgb(0.5, 0.5, 0.5, 0.15),border = "black",lwd=2,lty=2)
-# text(7,-5,label = expression(bold(X[1] > q[1]^u)),cex=1.8,col="black",font=2)
-# # legend(5,-5,legend = expression(X[1] > q[1]^u),cex=1.8,bg="white",bty="n",text.col = "black")
-# 
-# rect(-15, -15, quant.set.minima[1], 15, col = rgb(0, 0, 1, 0.15), border = "blue", lwd = 2, lty = 2)
-# text(-7,5,label = expression(bold(X[1] < q[1]^l)),cex=1.8,col="blue")
-# 
-# dev.off()
