@@ -1,2 +1,2 @@
-# DeepSPAR-AlpineRunoff
+# DeepSPAR-hydroSMILE
 
