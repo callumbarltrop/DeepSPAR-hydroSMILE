@@ -86,18 +86,18 @@ sim_data_normal <- apply(rCopula(n, copula = normc),2,Laplace_inverse)
 
 # Specify data matrix centered at (0,...,0)
 
-X.norm <- sim_data_normal
+X.sim <- sim_data_normal
 
 # Specify sample size and dimension of data 
 
-n <- dim(X.norm)[1]
-d <- dim(X.norm)[2]
+n <- dim(X.sim)[1]
+d <- dim(X.sim)[2]
 
 # Decompose data into radial and angular components 
 
-R <- apply(X.norm,1,l2_norm)
+R <- apply(X.sim,1,l2_norm)
 
-W <- X.norm/R
+W <- X.sim/R
 W <- as.matrix(W)
 
 # Fit quantile regression model  ------------------------------------------
@@ -164,7 +164,7 @@ if(fit_QR){
   
   # Create a checkpoint for fitting the model 
   
-  checkpoint <- callback_model_checkpoint(filepath = "../QR_est/nn_parameters/qr_fit",
+  checkpoint <- callback_model_checkpoint(filepath = "../nn_parameters/QR_est/paper_figures",
                                           monitor = "val_loss",
                                           verbose = 0,
                                           save_best_only = TRUE,
@@ -183,7 +183,7 @@ if(fit_QR){
   dim(R.train) <- c(length(R.train),1)
   dim(R.valid) <- c(length(R.valid),1)
 
-  # Run ADAM to estimate parameters 
+  # Run ADAM to estimate parameters with early stopping 
   
   history <- quant.model %>%
     fit(list(W.train), R.train,
@@ -194,21 +194,26 @@ if(fit_QR){
 
   # Load the best model weights from the saved checkpoint 
   
-  quant.model <- load_model_weights_tf(quant.model, filepath = "../QR_est/nn_parameters/qr_fit")
+  quant.model <- load_model_weights_tf(quant.model, filepath = "../nn_parameters/QR_est/paper_figures")
 
   # Save the best tf model
   
-  save_model_tf(quant.model, "../QR_est/nn_parameters/qr_fit")
+  save_model_tf(quant.model, "../nn_parameters/QR_est/paper_figures")
   
 }
 
 # Load in best fitting tf model 
 
-quant.model <- tf$saved_model$load("../QR_est/nn_parameters/qr_fit")
+quant.model <- tf$saved_model$load("../nn_parameters/QR_est/paper_figures")
 
 # Compute estimated quantile over all observed angles 
 
 u <- k_get_value(quant.model(k_constant(W)))
+
+# As a quick check, we compute the empirical quantile probability. This should be approximately equal to the corresponding theoretical value 
+
+print(mean(R>u))
+print(alpha)
  
 # Fit GPD to threshold exceeding observations ------------------------------------------
 
@@ -307,13 +312,12 @@ GPD.model %>%
           run_eagerly = T)
 
 # Fit the GPD model unless fit_GPD set to 'F'
-#HERERHEREHREHR
 
 if(fit_GPD){
   
   # Create a checkpoint for fitting the model 
   
-  checkpoint <- callback_model_checkpoint(filepath = paste0("../QR_est/nn_parameters/GPD_est/tmp_paper_fig/gpd_fit_{epoch:02d}"),
+  checkpoint <- callback_model_checkpoint(filepath = paste0("../nn_parameters/GPD_est/tmp_paper_figures/gpd_fit_{epoch:02d}"),
                                           monitor = "val_loss",
                                           verbose = 0,
                                           save_best_only = FALSE,
@@ -321,8 +325,13 @@ if(fit_GPD){
                                           mode = "min",
                                           save_freq = "epoch")
 
+  # Specify number of epochs and batch size 
+  # Note the batch size is simply the whole training data set since this is relatively small 
+  
   n.epochs <- 750
   batch.size <- length(R.train)
+  
+  # Run ADAM to estimate parameters with early stopping
   
   history <- GPD.model %>%
     fit(
@@ -334,501 +343,319 @@ if(fit_GPD){
         callback_early_stopping(monitor = "val_loss", min_delta = 0, patience = 5)),
       validation_data = list(list(W.valid, u.valid), R.valid)
     )
+  
+  # Check which checkpoint/training step gave the best model loss 
 
-  optimal_epoch <- which.min(history$metrics$val_loss)
+  optimal.epoch <- which.min(history$metrics$val_loss)
 
+  # Load the best model weights from the model fit just before the optimal epoch 
+  
   GPD.model <- load_model_weights_tf(GPD.model,
-                                     filepath = paste0("../QR_est/nn_parameters/GPD_est/tmp_paper_fig/gpd_fit_",sprintf("%02d", optimal_epoch-1)))
+                                     filepath = paste0("../nn_parameters/GPD_est/tmp_paper_figures/gpd_fit_",sprintf("%02d", optimal.epoch-1)))
 
+  # Save the best weights and model at the (near) optimal loss value
+  
   save_model_weights_tf(GPD.model,
-                        paste0("../QR_est/nn_parameters/GPD_est/tmp_paper_fig/gpd_fit_best"))
+                        paste0("../nn_parameters/GPD_est/tmp_paper_figures/gpd_fit_best"))
 
   save_model_tf(GPD.model,
-                paste0("../QR_est/nn_parameters/GPD_est/gpd_fit_","paper_fig"))
+                paste0("../nn_parameters/GPD_est/paper_figures"))
 
-  # Load best validation loss value
+  # Get the loss value at the epoch before the optimal epoch 
+  
   best.valid.loss <- history$metrics$val_loss[which.min(history$metrics$val_loss)-1]
 
-  # Adjust number of epochs for further optimisation
+  # Reset the number of epochs; we reduce here since we are already close to an 'optimal' solution 
+  
   n.epochs <- 200
 
-  # Decreasing learning rate training scheme
+  # In the next step, we reduce the learning rate iteratively to see if we can find optimise our solution even more 
+  # For each new learning rate, we load in the best current weights, re-optimise the parameters and check if we improve on loss
+  # If the loss decreases, we update the model weights
+  # If there is no improvement, we keep the existing weights 
+  
   for (k in 2:length(l.r.vec)) {
 
-    print(paste0("Decreasing learning rate size to: ", l.r.vec[k]))
-
+    # Adjusting optimiser to use smaller learning rate
+    
     GPD.model %>%
       compile(optimizer = optimizer_adam(learning_rate = l.r.vec[k]),
               loss = GPD_loss,
               run_eagerly = T)
 
+    # Re-applying algorithm with lower learning rate, with existing weights as starting solution 
+    
     history <- GPD.model %>%
-      fit(list(W.train, u.train), R.train,
+      fit(
+        list(W.train, u.train), R.train,
           epochs = n.epochs,
           batch_size = batch.size,
-          callback = list(checkpoint,callback_early_stopping(monitor = "val_loss", min_delta = 0, patience = 10)),
-          validation_data = list(list(input_pseudo_angles = W.valid,input_u = u.valid), R.valid))
+          callback = list(
+            checkpoint,
+            callback_early_stopping(monitor = "val_loss", min_delta = 0, patience = 10)),
+          validation_data = list(list(input_pseudo_angles = W.valid,input_u = u.valid), R.valid)
+        )
 
-    # Check to see if validation loss has decreased
+    # We check to see if validation loss has decreased
+    # The first condition check if the weights give an infeasible solution, resulting in an infinite loss value 
+    
     if (length(which.min(history$metrics$val_loss)) > 0) {
 
+      # If the updated loss does not improve on the current loss, we do not update our solution
+      
       if (min(history$metrics$val_loss, na.rm = T) > best.valid.loss) {
 
-        optimal_epoch <- NA
+        optimal.epoch <- NA
 
       } else {
+        
+        # Find the epoch and the loss value at the optimal weights 
 
-        optimal_epoch <- which.min(history$metrics$val_loss)
+        optimal.epoch <- which.min(history$metrics$val_loss)
 
-        best.valid.loss <- history$metrics$val_loss[optimal_epoch]
+        best.valid.loss <- history$metrics$val_loss[optimal.epoch]
 
       }
 
     } else {
 
-      optimal_epoch <- NA
+      # When the computed weights are infeasible, we do not update our solution 
+      
+      optimal.epoch <- NA
 
     }
 
-    if (!is.na(optimal_epoch)) {
+    # If the loss improves with the new learning rate, we update the saved model weights 
+    
+    if (!is.na(optimal.epoch)) {
 
+      # Load in weights of new 'optimal' solution 
+      
       GPD.model <- load_model_weights_tf(GPD.model,
-                                         filepath = paste0("../QR_est/nn_parameters/GPD_est/tmp_paper_fig/gpd_fit_",sprintf("%02d", optimal_epoch)))
+                                         filepath = paste0("../nn_parameters/GPD_est/tmp_paper_figures/gpd_fit_",sprintf("%02d", optimal.epoch)))
 
+      # Update 'optimal' weights 
+      
       save_model_weights_tf(GPD.model,
-                            paste0("../QR_est/nn_parameters/GPD_est/tmp_paper_fig/gpd_fit_best"))
+                            paste0("../nn_parameters/GPD_est/tmp_paper_figures/gpd_fit_best"))
 
+      # Update saved model with new weights  
+      
       save_model_tf(GPD.model,
-                    paste0("../QR_est/nn_parameters/GPD_est/gpd_fit_","paper_fig"))
+                    paste0("../nn_parameters/GPD_est/paper_figures"))
 
     } else{
 
+      # Re-load in best weights from previous learning rate  
+      
       load_model_weights_tf(GPD.model,
-                            paste0("../QR_est/nn_parameters/GPD_est/tmp_paper_fig/gpd_fit_best"))
+                            paste0("../nn_parameters/GPD_est/tmp_paper_figures/gpd_fit_best"))
 
     }
 
   }
 
+  # As a final step to keep the directory neat, we delete all temporary saved model weights over different epochs. 
+  # We only save our 'optimal' model fit
 
-  unlink(paste0("../QR_est/nn_parameters/GPD_est/tmp_paper_fig"),recursive = T, force = T)
+  unlink(paste0("../nn_parameters/GPD_est/tmp_paper_figures"),recursive = T, force = T)
   
 }
 
+# Load in our best model fit 
 
-
-GPD.model <- load_model_tf(filepath = paste0("../QR_est/nn_parameters/GPD_est/gpd_fit_","paper_fig"),
+GPD.model <- load_model_tf(filepath = paste0("../nn_parameters/GPD_est/paper_figures"),
                           custom_objects = list(GPD_loss=GPD_loss))
 
-#Validation 
 
-#Evaluating model fit on test set 
-pred.GPD.test <- k_get_value(GPD.model(list(k_constant(W.test), k_constant(u.test))))
+# Computing diagnostics using the fitted model  ---------------------------
 
-obs_quants <- qexp(apply(cbind(u.test, pred.GPD.test[,1:2], R.test+u.test), 1, function(x) pgpd(x[4], loc = x[1], scale = x[2]/(1 +x[3]), x[3])))
+# First we compute the GPD QQ plot 
 
-n_p <- length(R.test) 
-ps <- (1:n_p)/(n_p + 1) 
-theor_quants <- qexp(ps)
+# Estimate the GPD parameters at all threshold exceeding observations 
+
+pred.GPD.exc <- k_get_value(GPD.model(list(k_constant(W[R-u>0,]), k_constant(matrix(u[R-u>0],ncol=1)))))
+
+# Transform threshold exceeding radial values onto the standard exponential scale with the probability integral transform 
+
+obs.quants <- qexp(apply(cbind(u[R-u>0], pred.GPD.exc[,1:2], R[R-u>0]), 1, function(x) pgpd(x[4], loc = x[1], scale = x[2]/(1 +x[3]), x[3])))
+
+# Compute the corresponding theoretical quantiles, with theoretical uncertainty bounds computed from the Beta distribution (i.e., the distribution of rank statistics) 
+
+n_p <- length(obs.quants)
+ps <- (1:n_p)/(n_p + 1)
+theor.quants <- qexp(ps)
+lower.bound <- qexp(qbeta(0.025, 1:n_p, rev(1:n_p)))
+upper.bound <- qexp(qbeta(0.975, 1:n_p, rev(1:n_p)))
+
+# We save the GPD QQ plot in a png file 
 
 png(
-  filename = paste0("Plots/gpd_qq_plot_","paper_fig",".png"),
+  filename = paste0("../figures/example_gpd_qq_plot.png"),
   width = 2500, height = 2500, res = 400
 )
 
 par(mgp = c(2.8, 0.7, 0))
 
 plot(
-  theor_quants, sort(obs_quants),
+  theor.quants, sort(obs.quants),
   pch = 16, col = "grey",
   cex.lab = 1.6, cex.axis = 1.3, cex.main = 1.8,
-  xlim = range(sort(obs_quants), theor_quants),
-  ylim = range(sort(obs_quants), theor_quants),
-  xlab = "Theoretical", ylab = "Observed",
-  main = "GPD QQ plot"
+  xlim = range(obs.quants, theor.quants,lower.bound,upper.bound),
+  ylim = range(obs.quants, theor.quants,lower.bound,upper.bound),
+  ylab = "SPAR", xlab = "Theoretical",
+  main = paste0("GPD QQ plot")
 )
+polygon(c(rev(lower.bound), upper.bound),c(rev(sort(obs.quants)), sort(obs.quants)), col = 'grey80', border = NA)
 abline(a = 0, b = 1, lwd = 4, col = 2)
-points(theor_quants, sort(obs_quants), pch = 16, col = "black", cex = 1.4)
+points(theor.quants, sort(obs.quants), pch = 16, col = "black", cex = 1.4)
 
 dev.off()
 
-#We only want to evaluate marginal tails outside of the quantile set. Therefore, we just looks at marginal probabilities in this region
+# Next, we compute a scatterplot using data simulated from our model 
 
-pred_phis <- seq(0,2*pi,length.out=1001)
+# Specify how many observations to simulate from SPAR in the joint tail 
 
-W.circle <- cbind(cos(pred_phis),sin(pred_phis))
+n.sim.tail <- 1e5
 
-u.circle <- k_get_value(quant.model(k_constant(W.circle)))
+# Specify how many observations to resample from the body of data 
 
-quant.set <- c(u.circle)*W.circle
+n.sim <- round(n.sim.tail/alpha)
 
-quant.set.maxima <- apply(quant.set,2,max)
+# Specify non-threshold exceeding observations 
 
-quant.set.minima <- apply(quant.set,2,min)
+X.body <- X.sim[which(u >= R),]
 
-n.sim <- 1e5
+# Specify threshold exceeding observations 
 
-X.norm.excess <- X.norm[which(pred.quant < R),]
+X.tail <- X.sim[which(u < R),]
 
-# W.sim <- W[sample(1:nrow(W), n.sim,replace=T),]
+# Resample with replacement from joint body 
 
-W.excess <- W[which(pred.quant < R),]
+X.body.resam <- X.body[sample(1:nrow(X.body),n.sim-n.sim.tail,replace=T),]
 
-W.sim <- W.excess[sample(1:nrow(W.excess), n.sim,replace=T),]
+# Compute angles at threshold exceeding values 
+
+W.excess <- W[which(u < R),]
+
+# Resample with replacements from threshold exceeding angles 
+
+W.sim <- W.excess[sample(1:nrow(W.excess), n.sim.tail,replace=T),]
+
+# Compute quantile function at threshold exceeding angles 
+
 u.sim <- k_get_value(quant.model(k_constant(W.sim)))
+
+# Specify dimensions (for Keras)
 
 dim(u.sim) <- c(length(u.sim), 1)
 
-pred.GPD.sim <- k_get_value(GPD.model(list(k_constant(W.sim), k_constant(u.sim))))
-nu.sim <- pred.GPD.sim[, 1]
-xi.sim <- pred.GPD.sim[, 2]
+# Compute GPD parameters at threshold exceeding angles 
 
-unif_sample <- runif(n.sim,0,1)
-R.sim <- apply(cbind(unif_sample,u.sim,nu.sim,xi.sim),1,function(x)
+pred.GPD.sim <- k_get_value(GPD.model(list(k_constant(W.sim), k_constant(u.sim))))
+
+# Simulate uniform observations 
+
+unif_sample <- runif(n.sim.tail,0,1)
+
+# Invert GPD to compute GPD quantiles 
+
+R.sim <- apply(cbind(unif_sample,u.sim,pred.GPD.sim[,1:2]),1,function(x)
   qgpd(x[1], loc=x[2], scale = x[3]/(1+ x[4]), shape=x[4])
 )
 
-X.sim.excess <- R.sim*W.sim
+# Compute simulated observations on Cartesian scale 
 
-X.excess.obs.os <- X.norm.excess
+X.tail.sim <- R.sim*W.sim
 
-X.excess.sim.os <- X.sim.excess
+# Combine joint body and tail simulated observations 
 
-m = 500
+X.spar.sim <- rbind(X.body.resam,X.tail.sim)
 
-for(i in 1:d){
+# Remove any objects we no longer need to save memory
 
-  m = 500
+rm(u.sim,pred.GPD.sim,unif_sample,R.sim,W.sim,X.body,W.excess)
 
-  title = paste0("Variable ",i)
+# Vector of threshold for evaluating chi 
 
-  X.obs.tail = X.excess.obs.os[,i][X.norm.excess[,i] > quant.set.maxima[i]]
+u_vec <- seq(0.8,0.99,by = 0.01)
 
-  X.sim.tail = as.numeric(X.excess.sim.os[,i][X.sim.excess[,i] > quant.set.maxima[i]])
-
-  if(m > length(X.obs.tail)){m = length(X.obs.tail)}
-
-  ps  = (1:m)/(m+1)
-
-  obs_quants = quantile(X.obs.tail,ps)
-  sim_quants = quantile(X.sim.tail,ps)
-
-  png(
-    filename = paste0("Plots/marginal_tails_",title,"_upper_","paper_fig",".png"),
-    width = 2500, height = 2500, res = 400
-  )
-
-  par(mgp = c(2.8, 0.7, 0))
-
-  plot(
-    sim_quants,obs_quants,
-    pch=16,col="grey",
-    cex.lab = 1.6, cex.axis = 1.3, cex.main = 1.8,
-    xlim=range(obs_quants,sim_quants),
-    ylim=range(obs_quants,sim_quants),
-    ylab = "Observed",xlab = "Model",
-    main=paste0(toupper(substring(title, 1, 1)), substring(title, 2)," upper tail") )
-  abline(a=0,b=1,lwd=4,col=2)
-  points(sim_quants,obs_quants,pch=16,col="black",cex=1.3)
-
-  dev.off()
-
-}
-
-
-for(i in 1:d){
-
-  m = 500
-
-  title = paste0("Variable ",i)
-
-  X.obs.tail = X.excess.obs.os[,i][X.norm.excess[,i] < quant.set.minima[i]]
-
-  X.sim.tail = as.numeric(X.excess.sim.os[,i][X.sim.excess[,i] < quant.set.minima[i]])
-
-  if(m > length(X.obs.tail)){m = length(X.obs.tail)}
-
-  ps  = (1:m)/(m+1)
-
-  obs_quants = quantile(X.obs.tail,ps)
-  sim_quants = quantile(X.sim.tail,ps)
-
-  png(
-    filename = paste0("Plots/marginal_tails_",title,"_lower_","paper_fig",".png"),
-    width = 2500, height = 2500, res = 400
-  )
-
-  par(mgp = c(2.8, 0.7, 0))
-
-  plot(
-    sim_quants,obs_quants,
-    pch=16,col="grey",
-    cex.lab = 1.6, cex.axis = 1.3, cex.main = 1.8,
-    xlim=range(obs_quants,sim_quants),
-    ylim=range(obs_quants,sim_quants),
-    ylab = "Observed",xlab = "Model",
-    main=paste0(toupper(substring(title, 1, 1)), substring(title, 2)," lower tail"))
-  abline(a=0,b=1,lwd=4,col=2)
-  points(sim_quants,obs_quants,pch=16,col="black",cex=1.3)
-
-  dev.off()
-
-}
-
-labels <- paste0("Variable ",1:d)
-
-tail_dep <- function(x, y, u = 0.95) {
-  qx <- quantile(x, u, na.rm = TRUE)
-  qy <- quantile(y, u, na.rm = TRUE)
-  mean(x > qx & y > qy, na.rm = TRUE) / (1 - u)
-}
+p <- ncol(X.sim)
 
 png(
-  file = paste0("Plots/scatterplot_", "paper_fig", ".png"),
+  file = paste0("../figures/example_scatterplot.png"),
   width = 3500, height = 3500, res = 400
 )
 
-p = ncol(X.excess.obs.os)
-
-# 2x2 layout, all panels square, equal size
+# 4x4 layout, all panels square, equal size
 layout(matrix(1:4, nrow = 2, ncol = 2), widths = rep(1,2), heights = rep(1,2))
-par(mar = c(4, 4, 2, 1))  # inner margin (bottom, left, top, right)
+par(mar = c(4, 4.5, 2, 1))  # inner margin (bottom, left, top, right)
 par(oma = c(1, 1, 4, 1))  # outer margin for overall labels / title
-
 
 for (j in 1:p) {
   for (i in 1:p) {
-
+    
     if (i == j) {
+      
       # ---------------- Diagonal: QQ plot ----------------
-      m = min(c(length(X.excess.sim.os[, i]),length(X.excess.obs.os[,j])))
-
-      ps = (1:m)/(m+1)
-
-      obs_quants = quantile(X.excess.obs.os[,i],ps)
-      sim_quants = quantile(X.excess.sim.os[, j],ps)
-
+      m <- min(c(length(X.tail.sim[, i]),length(X.tail[,i])))
+      
+      ps <- (1:m)/(m+1)
+      
+      sim.quants <- quantile(X.tail.sim[, i],ps)
+      
+      obs.quants <- quantile(X.tail[,i],ps)
+      
       plot(
-        sim_quants,obs_quants,
+        sim.quants,obs.quants,
         pch=16,col="grey",
         cex.lab = 1.3, cex.axis = 1, cex.main = 1.3,
-        xlim=range(obs_quants,sim_quants),
-        ylim=range(obs_quants,sim_quants),
-        ylab = ifelse(j==1,"Observed","") ,xlab =ifelse(i==1,"Model",""),
-        main = paste0(toupper(substring(labels[j], 1, 1)), substring(labels[j], 2)," quantiles"))
+        xlim=range(obs.quants,sim.quants),
+        ylim=range(obs.quants,sim.quants),
+        ylab = ifelse(i==1,"Simulated","") ,xlab = ifelse(i==1,"SPAR",""),
+        main = bquote(X[.(i)]))
       abline(a=0,b=1,lwd=4,col=2)
-      points(sim_quants,obs_quants,pch=16,col="black",cex=1.3)
-
+      points(sim.quants,obs.quants,pch=16,col="black",cex=1.3)
+      
     } else if (j > i) {
       # ---------------- Upper diagonal: Scatter ----------------
-      xs <- X.excess.sim.os[, j]; ys <- X.excess.sim.os[, i]
-      xo <- X.excess.obs.os[, j]; yo <- X.excess.obs.os[, i]
-      xr <- range(xs, xo); yr <- range(ys, yo)
+      xs <- X.tail.sim[, j]; ys <- X.tail.sim[, i]
+      xo <- X.tail[, j]; yo <- X.tail[, i]
+      
+      if(i == 1){xlab=bquote(X[.(j)])}else{xlab=""}
 
-      xlab = ifelse(i==1,paste0(toupper(substring(labels[j], 1, 1)), substring(labels[j], 2)),"")
-
-      ylab = ifelse(i==j-1,paste0(toupper(substring(labels[i], 1, 1)), substring(labels[i], 2)),"")
-
-      # plot(xs[1:1000], ys[1:1000], pch = 16, col = rgb(0, 1, 0, 0.35), cex = 0.7,xlab=xlab,ylab=ylab,cex.lab=1.3)
-      # points(xo[1:1000], yo[1:1000], pch = 16, col = rgb(0.5, 0.5, 0.5, 1), cex = 0.7)
-      plot(xs, ys, pch = 16, col = rgb(0, 1, 0, 0.35), cex = 0.7,xlab=xlab,ylab=ylab,cex.lab=1.3)
-      points(xo, yo, pch = 16, col = rgb(0.5, 0.5, 0.5, 1), cex = 0.7)
-
+      if(i == j-1){ylab=bquote(X[.(i)])}else{ylab=""}
+      
+      plot(xs[1:length(xo)],ys[1:length(xo)], pch = 16, col = rgb(0, 1, 0, 0.35), cex = 0.7,xlab=xlab,ylab=ylab,cex.lab=1.3)
+      points(xo,yo, pch = 16, col = rgb(0.5, 0.5, 0.5, 1), cex = 0.7)
+      
     } else {
-      # ---------------- Lower diagonal: dependence coeff ----------------
-      xs <- X.excess.sim.os[, i]; ys <- X.excess.sim.os[, j]
-      xo <- X.excess.obs.os[, i]; yo <- X.excess.obs.os[, j]
+      # ---------------- Lower diagonal: chi dependence coefficient on scale ----------------
+      xs <- X.tail.sim[, i]; ys <- X.tail.sim[, j]
+      xo <- X.tail[, i]; yo <- X.tail[, j]
+      
+      lam_sim <- sapply(u_vec,tail_dep,x=xs,y=ys)
+      lam_obs <- sapply(u_vec,tail_dep,x=xo,y=yo)
+      
+      plot(u_vec,lam_obs,type="l",lwd=2,col="grey2",cex.lab=1.3, xlab=expression(u),ylab=expression(chi(u)),ylim=c(0,1))
+      lines(u_vec,lam_sim,lwd=2,col="green3")
+      lines(u_vec,lam_obs,type="l",lwd=2,col="grey")
 
-      r_sim <- cor(xs, ys, method = "spearman", use = "complete.obs")
-      r_obs <- cor(xo, yo, method = "spearman", use = "complete.obs")
+      abline(h = 1,lwd=1,lty=2)
 
-      lam_sim <- tail_dep(xs, ys)
-      lam_obs <- tail_dep(xo, yo)
-
-      plot(0, 0, type = "n", axes = FALSE, xlab = "", ylab = "")
-      text(0, 0.4, bquote(rho[m]==.(round(r_sim, 2))~", "~chi[m]==.(round(lam_sim, 2))),
-           col="green3", cex=1.2)
-      text(0, -0.4, bquote(rho[o]==.(round(r_obs, 2))~", "~chi[o]==.(round(lam_obs, 2))),
-           col="grey2", cex=1.2)
-      abline(h = 0, col = rgb(0,0,0,0.1))
-
+      abline(h = 0,lwd=1,lty=2)
+      
     }
   }
 }
 
-mtext("Model vs observed extremes", outer = TRUE, side = 3, line = 1.2, cex = 1.2)
 dev.off()
 
-n.sim = 1e6
+#HERE ...................................
 
-W.sim = W.excess[sample(1:nrow(W.excess), n.sim,replace=T),]
-u.sim <- k_get_value(quant.model(k_constant(W.sim)))
+# Now add return level plots and we are done
 
-dim(u.sim) = c(length(u.sim), 1)
-
-pred.GPD.sim <- k_get_value(GPD.model(list(k_constant(W.sim), k_constant(u.sim))))
-nu.sim = pred.GPD.sim[, 1]
-xi.sim = pred.GPD.sim[, 2]
-
-unif_sample = runif(n.sim,0,1)
-R.sim = apply(cbind(unif_sample,u.sim,nu.sim,xi.sim),1,function(x)
-  qgpd(x[1], loc=x[2], scale = x[3]/(1+ x[4]), shape=x[4])
-)
-
-X.sim.excess = R.sim*W.sim
-
-n_y = 1300 #(varies slightly depending on year)
-
-png(
-  filename = paste0("Plots/rl_plot_upper_","paper_fig",".png"),
-  width = 4000, height = 2000, res = 400
-)
-
-par(mgp = c(2.8, 0.7, 0))
-
-par(mfrow=c(1,2))
-
-for(i in 1:d){
-  
-  title = paste0("Variable ",i)
-  
-  emp_RLs = sort(X.norm.excess[,i][X.norm.excess[,i] > quant.set.maxima[i]])
-  
-  emp_probs = 1 - sort(rank(X.norm.excess[,i])[X.norm.excess[,i] > quant.set.maxima[i]]/(nrow(X.norm.excess)+1))
-  
-  emp_RPs = 1/(n_y*emp_probs*(1-quant.level))
-  
-  fix_RPs = exp(seq(log(emp_RPs[1]),log(1000),length.out = 3000))
-  
-  fix_probs = 1/(fix_RPs*n_y*(1-quant.level))
-  
-  model_RLs = quantile(X.sim.excess[,i],1-fix_probs)
-  
-  plot(
-    fix_RPs, model_RLs,
-    log = "x",
-    type = "l", lwd=3, col = "grey",
-    xlab = "Return period (log scale)",
-    ylab = "",
-    xaxt = "n",
-    cex.lab=1.3,cex.main=1.5,
-    ylim=range(emp_RLs,model_RLs),
-    main=paste0(toupper(substring(title, 1, 1)), substring(title, 2)," upper tail")
-  )
-  
-  points(emp_RPs,emp_RLs,pch=16,col="black",cex=1.4)
-  
-  ticks <- c(0.1, 1, 10, 100, 1000)
-  
-  axis(1, at = ticks, labels = as.character(ticks))
-  
-  if(i == 1){
-    legend("topleft",legend=c("Model","Empirical"),
-           col = c("grey", "black"),
-           lty = c(1, NA),          # line type for line; NA for no line
-           pch = c(NA, 16),         # point type for point; NA for no point
-           lwd = c(3, NA),
-           pt.cex = 1.2,
-           cex=1.2,
-           bg="white")
-  }
-  
-}
-
-dev.off()
-
-png(
-  filename = paste0("Plots/rl_plot_lower_","paper_fig",".png"),
-  width = 4000, height = 2000, res = 400
-)
-
-par(mgp = c(2.8, 0.7, 0))
-
-par(mfrow=c(1,2))
-
-for(i in 1:d){
-  
-  title = paste0("Variable ",i)
-  
-  emp_RLs = sort(X.norm.excess[,i][X.norm.excess[,i] < quant.set.minima[i]])
-  
-  emp_probs = sort(rank(X.norm.excess[,i])[X.norm.excess[,i] < quant.set.minima[i]]/(nrow(X.norm.excess)+1))
-  
-  emp_RPs = 1/(n_y*emp_probs*(1-quant.level))
-  
-  fix_RPs = exp(seq(log(emp_RPs[length(emp_RPs)]),log(1000),length.out = 3000))
-  
-  fix_probs = 1/(fix_RPs*n_y*(1-quant.level))
-  
-  model_RLs = quantile(X.sim.excess[,i],fix_probs)
-  
-  plot(
-    fix_RPs, model_RLs,
-    log = "x",
-    type = "l", lwd=3, col = "grey",
-    xlab = "Return period (log scale)",
-    ylab = "",
-    xaxt = "n",
-    cex.lab=1.3,cex.main=1.5,
-    ylim=range(emp_RLs,model_RLs),
-    main=paste0(toupper(substring(title, 1, 1)), substring(title, 2)," lower tail")
-  )
-  
-  points(emp_RPs,emp_RLs,pch=16,col="black",cex=1.4)
-  
-  ticks <- c(0.1, 1, 10, 100, 1000)
-  
-  axis(1, at = ticks, labels = as.character(ticks))
-  
-  if(i == 1){
-    legend("topright",legend=c("Model","Empirical"),
-           col = c("grey", "black"),
-           lty = c(1, NA),          # line type for line; NA for no line
-           pch = c(NA, 16),         # point type for point; NA for no point
-           lwd = c(3, NA),
-           pt.cex = 1.2,
-           cex=1.2,
-           bg="white")
-  }
-  
-}
-
-dev.off()
-
-
-png(
-  filename = paste0("Plots/SPAR_illustration",".png"),
-  width = 4500, height = 1500, res = 400
-)
-
-par(mgp = c(2.8, 0.7, 0))
-
-par(mfrow=c(1,3))
-
-plot(X.norm, pch = 16, col = rgb(0.5, 0.5, 0.5, 1), cex = 0.7,xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,xlim=c(-10,10),ylim=c(-10,10))
-
-plot(X.norm[which(pred.quant >= R),], pch = 16, col = rgb(0.5, 0.5, 0.5, 1), cex = 0.7,xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,xlim=c(-10,10),ylim=c(-10,10))
-points(X.norm.excess,pch=16,col = rgb(0, 1, 0, 1),cex=0.7)
-lines(quant.set,lwd=3,col="red")
-
-plot(X.norm.excess, pch = 16, col = rgb(0, 1, 0, 1), cex = 0.7,xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,xlim=c(-10,10),ylim=c(-10,10))
-lines(quant.set,lwd=3,col="red")
-rect(quant.set.maxima,-15,15,15,col = rgb(0.5, 0.5, 0.5, 0.15),border = "black",lwd=2,lty=2)
-text(7,-2,label = expression(bold(X[1] > q[1]^M)),cex=1.6,col="black",font=2)
-
-rect(-15, 4, -2, 15, col = rgb(0, 0, 1, 0.15), border = "blue", lwd = 2, lty = 2)
-text(-6.5,7,label = expression(bold(X[1] < -2) * "," * bold(X[2] > 4)),cex=1.6,col="blue")
-
-# rect(-15, -15, 15, -4, col = rgb(1, 0.647, 0, 0.15), border = "orange", lwd = 2, lty = 2)
-# text(-7,-8,label = expression(bold(X[2] < -4)),cex=1.6,col="orange")
-
-x_poly <- c(-26, 20, -26)
-y_poly <- c(20,-26,-26)
-
-polygon(x_poly, y_poly, col = rgb(1, 0.647, 0, 0.15), border = "orange",lwd = 2, lty = 2)
-text(-7,-8,label = expression(bold(X[1] + X[2] < -6)),cex=1.6,col="orange")
-
-dev.off()
+# Also adjust the below 
 
 png(
   filename = paste0("Plots/SPAR_illustration_1",".png"),

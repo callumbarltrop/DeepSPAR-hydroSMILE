@@ -49,6 +49,13 @@ geometric_median <- function(X, eps = 1e-6, maxit = 1000) {
   return(y)
 }
 
+# Function to estimate chi empirically 
+tail_dep <- function(u,x, y) {
+  qx <- quantile(x, u, na.rm = TRUE)
+  qy <- quantile(y, u, na.rm = TRUE)
+  mean(x > qx & y > qy, na.rm = TRUE) / (1 - u)
+}
+
 #Checking for required packages. This function will install any required packages if they are not already installed
 packages = c("evd") 
 package.check <- lapply(
