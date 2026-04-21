@@ -36,7 +36,7 @@ init_bias <- tan(pi*(init_shape))
 activation.func <- "relu"
 
 # Flags for specifying whether or not to fit MLPs associated with quantile regression and GPD. 
-# Can be set to 'F' if NN parameters already computed 
+# These can be set to 'F' if NN parameters have already been computed to save pointless refitting.  
 
 fit_QR <- T
 fit_GPD <- T
