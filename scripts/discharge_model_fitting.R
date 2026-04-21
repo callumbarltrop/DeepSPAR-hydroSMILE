@@ -1,37 +1,41 @@
-# Getting SLURM batch ID  -----------------------------------
+# Clear R environment 
 
 rm(list=ls())
 
-array_id=commandArgs(trailingOnly=T) #Assuming job array submission with bash/slurm
-array_id=as.numeric(array_id)
+# Select a time window to look at. Must be in c(1,2,3,4)
+
+tw_ind <- 1
+if(!(tw_ind %in% 1:4)){stop("tw_ind must be in c(1,2,3,4)")}
 
 # NN and GPD tuning parameters --------------------------------------------
 
-fit_models = F
+# Flag for fitting models 
+
+fit_models <- T
 
 #NN layers/neurons 
-nn.nunits = c(32,32,32)
+nn.nunits <- c(32,32,32)
 
 #GPD quantile level 
-quant.level = 0.85
+quant.level <- 0.85
 
 #Set initial shape parameter
-init_shape = 0.1
+init_shape <- 0.1
 
 #Vector of decreasing learning rates
-l.r.vec = c(0.001, 5e-04, 0.00025, 1e-04, 5e-05)  
+l.r.vec <- c(0.001, 5e-04, 0.00025, 1e-04, 5e-05)  
 
 #Link function for shape parameter
 gpd.shape.custom_activation <- function(x) { #Bound to [-.5,.5]
   tf$atan(x)/pi
 }
 
-init_bias = tan(pi*(init_shape)) #Compute initial biases (to ensure valid starting parameters)
+init_bias <- tan(pi*(init_shape)) #Compute initial biases (to ensure valid starting parameters)
 
 #NN activation function 
-activation.func = "relu"
+activation.func <- "relu"
 
-n_y = 52 #(varies slightly depending on year)
+n_y <- 52 #(varies slightly depending on year)
 
 # Packages and VE ---------------------------------------------------------
 
@@ -54,49 +58,37 @@ tensorflow::set_random_seed(1)
 # Data --------------------------------------------------------------------
 
 # Locations of stations 
-river_names = c("ammer","iller","lech","loisach")
+river_names <- c("ammer","iller","lech","loisach")
 
 #Split into four 30 year windows
-time_periods = list(1980:2009,2010:2039,2040:2069,2070:2099)
+time_periods <- list(1980:2009,2010:2039,2040:2069,2070:2099)
 
-std_sigmas = readRDS(file = "RunOffData/std_sigmas.rds")
+std_sigmas <- readRDS(file = "../data/preprocessed_data/std_sigmas.rds")
 
-std_mus = readRDS(file = "RunOffData/std_mus.rds")
+std_mus <- readRDS(file = "../data/preprocessed_data/std_mus.rds")
 
-std_tw_dfs = readRDS(file = "RunOffData/std_tw_dfs.rds")
+std_tw_dfs <- readRDS(file = "../data/preprocessed_data/std_tw_dfs.rds")
 
-os_tw_dfs = readRDS(file = "RunOffData/os_tw_dfs.rds")
+os_tw_dfs <- readRDS(file = "../data/preprocessed_data/os_tw_dfs.rds")
 
-l1_seq_upper = 1000
+l1_seq_upper <- 1000
 
-l1_seq_lower = 30
+l1_seq_lower <- 30
 
-prob_RPs = c(10)
+prob_RPs <- c(10)
 
 # Fitting across all pairs ------------------------------------------------
 
-indices_grid = expand.grid(c(1:length(time_periods)))
-  
-dir.create("PNGs/opt_fits_4d", showWarnings = FALSE)
-
-print(paste("Processing task", array_id))
-
-# Index of time window. We use middle of the period for optimisation
-time_window_ind = indices_grid$Var1[array_id]
-
-# if(file.exists(file=paste0("BootVals/model_prob_ests_4d","_tw_",time_window_ind,".rds"))){
-#   stop("Script already finished")
-# }
+print(paste("Fitting model for time window ", tw_ind))
 
 # Extract normalised data
-X.norm = std_tw_dfs[[time_window_ind]]
+X.norm = std_tw_dfs[[tw_ind]]
 
-polar = rect2polar(t(X.norm))  #Get polar coordinates
 n = dim(X.norm)[1]
 d = dim(X.norm)[2]
 
 # Create AR decomp 
-R = polar$r
+R <- apply(X.norm,1,l2_norm)
 W = X.norm/R
 W = as.matrix(W)
 
@@ -148,7 +140,10 @@ quant.model %>%
 
 if(fit_models){
   
-  checkpoint <- callback_model_checkpoint(filepath = paste0("runs/QR_est/qr_fit_4d_","tw_",time_window_ind), 
+  checkpoint_dir <- tempdir()
+  checkpoint_path <- file.path(checkpoint_dir, paste0("QR_checkpoint_", tw_ind))
+  
+  checkpoint <- callback_model_checkpoint(filepath = checkpoint_path, 
                                           monitor = "val_loss", 
                                           verbose = 0,
                                           save_best_only = TRUE, 
@@ -168,14 +163,16 @@ if(fit_models){
         validation_data = list(list(input_pseudo_angles = W.valid),R.valid))
   
   # Load the best fitting model from the checkpoint save
-  quant.model <- load_model_weights_tf(quant.model, filepath = paste0("runs/QR_est/qr_fit_4d_","tw_",time_window_ind))
+  quant.model <- load_model_weights_tf(quant.model, filepath = checkpoint_path)
   
   # Then save the best model.
-  save_model_tf(quant.model, paste0("runs/QR_est/qr_fit_4d_","tw_",time_window_ind))
+  save_model_tf(quant.model, paste0("../nn_parameters/QR_est/qr_fit_tw_",tw_ind))
+  
+  unlink(checkpoint_dir, recursive = TRUE)
   
 }
 
-quant.model <- tf$saved_model$load(paste0("runs/QR_est/qr_fit_4d_","tw_",time_window_ind))
+quant.model <- tf$saved_model$load(paste0("../nn_parameters/QR_est/qr_fit_tw_",tw_ind))
 
 pred.quant <- k_get_value(quant.model(k_constant(W)))
 
@@ -266,7 +263,7 @@ if(fit_models){
   n.epochs <- 750
   batch.size = length(R.train)
   
-  checkpoint <- callback_model_checkpoint(filepath = paste0("runs/GPD_est_4d/tmp_",array_id,"/gpd_fit_{epoch:02d}"), 
+  checkpoint <- callback_model_checkpoint(filepath = paste0("../nn_parameters/GPD_est/tmp_",tw_ind,"/gpd_fit_{epoch:02d}"), 
                                           monitor = "val_loss", 
                                           verbose = 0, 
                                           save_best_only = FALSE, 
@@ -288,13 +285,13 @@ if(fit_models){
   optimal_epoch = which.min(history$metrics$val_loss)
   
   GPD.model <- load_model_weights_tf(GPD.model,
-                                     filepath = paste0("runs/GPD_est_4d/tmp_",array_id,"/gpd_fit_",sprintf("%02d", optimal_epoch-1)))
+                                     filepath = paste0("../nn_parameters/GPD_est/tmp_",tw_ind,"/gpd_fit_",sprintf("%02d", optimal_epoch-1)))
   
   save_model_weights_tf(GPD.model,  
-                        paste0("runs/GPD_est_4d/tmp_",array_id,"/gpd_fit_best"))
+                        paste0("../nn_parameters/GPD_est/tmp_",tw_ind,"/gpd_fit_best"))
   
   save_model_tf(GPD.model, 
-                paste0("runs/GPD_est_4d/gpd_fit_tw_",time_window_ind))
+                paste0("../nn_parameters/GPD_est/gpd_fit_tw_",tw_ind))
   
   # Load best validation loss value 
   best.valid.loss <- history$metrics$val_loss[which.min(history$metrics$val_loss)-1]
@@ -343,29 +340,29 @@ if(fit_models){
     if (!is.na(optimal_epoch)) {
       
       GPD.model <- load_model_weights_tf(GPD.model,
-                                         filepath = paste0("runs/GPD_est_4d/tmp_",array_id,"/gpd_fit_",sprintf("%02d", optimal_epoch)))
+                                         filepath = paste0("../nn_parameters/GPD_est/tmp_",tw_ind,"/gpd_fit_",sprintf("%02d", optimal_epoch)))
       
       save_model_weights_tf(GPD.model,  
-                            paste0("runs/GPD_est_4d/tmp_",array_id,"/gpd_fit_best"))
+                            paste0("../nn_parameters/GPD_est/tmp_",tw_ind,"/gpd_fit_best"))
       
       save_model_tf(GPD.model, 
-                    paste0("runs/GPD_est_4d/gpd_fit_","tw_",time_window_ind))
+                    paste0("../nn_parameters/GPD_est/gpd_fit_","tw_",tw_ind))
       
     } else{
       
       load_model_weights_tf(GPD.model,  
-                            paste0("runs/GPD_est_4d/tmp_",array_id,"/gpd_fit_best"))
+                            paste0("../nn_parameters/GPD_est/tmp_",tw_ind,"/gpd_fit_best"))
       
     }
     
   }
   
   
-  unlink(paste0("runs/GPD_est_4d/tmp_",array_id,""),recursive = T, force = T)
+  unlink(paste0("../nn_parameters/GPD_est/tmp_",tw_ind,""),recursive = T, force = T)
   
 }
 
-GPD.model<- load_model_tf(filepath = paste0("runs/GPD_est_4d/gpd_fit_tw_",time_window_ind),
+GPD.model<- load_model_tf(filepath = paste0("../nn_parameters/GPD_est/gpd_fit_tw_",tw_ind),
                           custom_objects = list(GPD_loss=GPD_loss))
 
 #Validation 
@@ -379,13 +376,13 @@ n_p = length(u[R-u>0])
 ps = (1:n_p)/(n_p + 1)
 theor_quants = qexp(ps)
 
-saveRDS(ps,file = paste0("BootVals/gpd_qq_prob_tw_",time_window_ind,".rds"))
+saveRDS(ps,file = paste0("../computed_model_vals/gpd_qq_prob_tw_",tw_ind,".rds"))
 
-saveRDS(sort(obs_quants),file = paste0("BootVals/gpd_qq_quants_","_tw_",time_window_ind,".rds"))
+saveRDS(sort(obs_quants),file = paste0("../computed_model_vals/gpd_qq_quants__tw_",tw_ind,".rds"))
 
 n.sim.tail = 2e6
 
-n.sim = round((n.sim.tail/(100*(1-quant.level)))*100)
+n.sim = round((n.sim.tail/(1-quant.level)))
 
 X.norm.body = X.norm[which(pred.quant >= R),]
 
@@ -415,9 +412,9 @@ X.sim = rbind(X.sim.body,X.sim.excess)
 
 rm(u.sim,pred.GPD.sim,unif_sample,nu.sim,xi.sim,R.sim,W.sim)
 
-mus = std_mus[[time_window_ind]]
+mus = std_mus[[tw_ind]]
 
-sigmas = std_sigmas[[time_window_ind]]
+sigmas = std_sigmas[[tw_ind]]
 
 X.excess.obs.os = apply(rbind(mus,X.norm.excess),2,function(x){return( x[-1] + x[1] )})
 
@@ -452,24 +449,24 @@ for (j in 1:p) {
 
       ps = (1:m)/(m+1)
 
-      saveRDS(ps,file = paste0("BootVals/marg_qq_prob_",labels[j],"_tw_",time_window_ind,".rds"))
+      saveRDS(ps,file = paste0("../computed_model_vals/marg_qq_prob_",labels[j],"_tw_",tw_ind,".rds"))
 
       sim_quants = quantile(X.excess.sim.os[, j],ps)
 
-      saveRDS(sim_quants,file = paste0("BootVals/marg_qq_quants_",labels[j],"_tw_",time_window_ind,".rds"))
+      saveRDS(sim_quants,file = paste0("../computed_model_vals/marg_qq_quants_",labels[j],"_tw_",tw_ind,".rds"))
 
       obs_quants = quantile(X.excess.obs.os[,i],ps)
       
-      saveRDS(obs_quants,file = paste0("BootVals/marg_qq_quants_obs_",labels[j],"_tw_",time_window_ind,".rds"))
+      saveRDS(obs_quants,file = paste0("../computed_model_vals/marg_qq_quants_obs_",labels[j],"_tw_",tw_ind,".rds"))
       
     } else if (j > i) {
       # ---------------- Upper diagonal: Scatter ----------------
       xs <- X.excess.sim.os[, j]; ys <- X.excess.sim.os[, i]
       xo <- X.excess.obs.os[, j]; yo <- X.excess.obs.os[, i]
       
-      saveRDS(cbind(xs[1:10000], ys[1:10000]),file = paste0("BootVals/scatterplot_",labels[i],"_",labels[j],"_tw_",time_window_ind,".rds"))
+      saveRDS(cbind(xs[1:10000], ys[1:10000]),file = paste0("../computed_model_vals/scatterplot_",labels[i],"_",labels[j],"_tw_",tw_ind,".rds"))
       
-      saveRDS(cbind(xo, yo),file = paste0("BootVals/scatterplot_observed_",labels[i],"_",labels[j],"_tw_",time_window_ind,".rds"))
+      saveRDS(cbind(xo, yo),file = paste0("../computed_model_vals/scatterplot_observed_",labels[i],"_",labels[j],"_tw_",tw_ind,".rds"))
 
     } else {
       # ---------------- Lower diagonal: chi dependence coefficient on scale ----------------
@@ -479,9 +476,9 @@ for (j in 1:p) {
       lam_sim <- sapply(u_vec,tail_dep,x=xs,y=ys)
       lam_obs <- sapply(u_vec,tail_dep,x=xo,y=yo)
 
-      saveRDS(lam_sim,file = paste0("BootVals/chi_plot_",labels[i],"_",labels[j],"_tw_",time_window_ind,".rds"))
+      saveRDS(lam_sim,file = paste0("../computed_model_vals/chi_plot_",labels[i],"_",labels[j],"_tw_",tw_ind,".rds"))
       
-      saveRDS(lam_obs,file = paste0("BootVals/chi_plot_obs_",labels[i],"_",labels[j],"_tw_",time_window_ind,".rds"))
+      saveRDS(lam_obs,file = paste0("../computed_model_vals/chi_plot_obs_",labels[i],"_",labels[j],"_tw_",tw_ind,".rds"))
 
     }
   }
@@ -509,11 +506,11 @@ for(i in 1:d){
 
   model_RLs = log(1+exp(model_RLs+mus[i]))*sigmas[i]
 
-  saveRDS(model_RLs,file=paste0("BootVals/rl_ests_4d_upper_",title,"_tw_",time_window_ind,".rds"))
+  saveRDS(model_RLs,file=paste0("../computed_model_vals/rl_ests_upper_",title,"_tw_",tw_ind,".rds"))
   
-  saveRDS(emp_RLs,file=paste0("BootVals/rl_ests_4d_upper_obs_",title,"_tw_",time_window_ind,".rds"))
+  saveRDS(emp_RLs,file=paste0("../computed_model_vals/rl_ests_upper_obs_",title,"_tw_",tw_ind,".rds"))
   
-  saveRDS(emp_RPs,file=paste0("BootVals/rp_ests_4d_upper_obs_",title,"_tw_",time_window_ind,".rds"))
+  saveRDS(emp_RPs,file=paste0("../computed_model_vals/rp_ests_upper_obs_",title,"_tw_",tw_ind,".rds"))
 
 }
 
@@ -539,11 +536,11 @@ for(i in 1:d){
 
   model_RLs = log(1+exp(model_RLs+mus[i]))*sigmas[i]
 
-  saveRDS(model_RLs,file=paste0("BootVals/rl_ests_4d_lower_",title,"_tw_",time_window_ind,".rds"))
+  saveRDS(model_RLs,file=paste0("../computed_model_vals/rl_ests_lower_",title,"_tw_",tw_ind,".rds"))
   
-  saveRDS(emp_RLs,file=paste0("BootVals/rl_ests_4d_lower_obs_",title,"_tw_",time_window_ind,".rds"))
+  saveRDS(emp_RLs,file=paste0("../computed_model_vals/rl_ests_lower_obs_",title,"_tw_",tw_ind,".rds"))
 
-  saveRDS(emp_RPs,file=paste0("BootVals/rp_ests_4d_lower_obs_",title,"_tw_",time_window_ind,".rds"))
+  saveRDS(emp_RPs,file=paste0("../computed_model_vals/rp_ests_lower_obs_",title,"_tw_",tw_ind,".rds"))
   
 }
 
@@ -599,4 +596,4 @@ lower_cdf_ests = apply(est_RLs_lower,1,function(ret_levels){
 
 probs_list = list(l1_seq_upper = l1_seq_upper, l1_seq_lower = l1_seq_lower, est_RLs_upper=est_RLs_upper, est_RLs_lower=est_RLs_lower, l1_upper_ests=l1_upper_ests, l1_lower_ests=l1_lower_ests, upper_surv_ests=upper_surv_ests, lower_cdf_ests=lower_cdf_ests)
 
-saveRDS(probs_list,file=paste0("BootVals/model_prob_ests_4d","_tw_",time_window_ind,".rds"))
+saveRDS(probs_list,file=paste0("../computed_model_vals/model_prob_ests_tw_",tw_ind,".rds"))

@@ -162,16 +162,21 @@ quant.model %>%
 
 if(fit_QR){
   
-  # Create a checkpoint for fitting the model 
+  # Create a temporary directory to store the checkpoint. This directory is later removed after we have saved the optimal model weights
   
-  checkpoint <- callback_model_checkpoint(filepath = "../nn_parameters/QR_est/paper_figures",
+  checkpoint_dir <- tempdir()
+  checkpoint_path <- file.path(checkpoint_dir, "QR_checkpoint")
+  
+  # Create a checkpoint for fitting the model 
+
+  checkpoint <- callback_model_checkpoint(filepath = checkpoint_path,
                                           monitor = "val_loss",
                                           verbose = 0,
                                           save_best_only = TRUE,
                                           save_weights_only = TRUE,
                                           mode = "min",
                                           save_freq = "epoch")
-  
+    
   # Specify number of epochs and batch size 
   
   n.epochs <- 500
@@ -194,11 +199,13 @@ if(fit_QR){
 
   # Load the best model weights from the saved checkpoint 
   
-  quant.model <- load_model_weights_tf(quant.model, filepath = "../nn_parameters/QR_est/paper_figures")
-
+  quant.model <- load_model_weights_tf(quant.model, filepath = checkpoint_path)
+  
   # Save the best tf model
   
   save_model_tf(quant.model, "../nn_parameters/QR_est/paper_figures")
+  
+  unlink(checkpoint_dir, recursive = TRUE)
   
 }
 
@@ -516,7 +523,7 @@ dev.off()
 
 # Specify how many observations to simulate from SPAR in the joint tail 
 
-n.sim.tail <- 1e5
+n.sim.tail <- 1e6
 
 # Specify how many observations to resample from the body of data 
 
@@ -580,6 +587,8 @@ rm(u.sim,pred.GPD.sim,unif_sample,R.sim,W.sim,X.body,W.excess)
 
 u_vec <- seq(0.8,0.99,by = 0.01)
 
+# Specify number of variables 
+
 p <- ncol(X.sim)
 
 png(
@@ -612,7 +621,7 @@ for (j in 1:p) {
         cex.lab = 1.3, cex.axis = 1, cex.main = 1.3,
         xlim=range(obs.quants,sim.quants),
         ylim=range(obs.quants,sim.quants),
-        ylab = ifelse(i==1,"Simulated","") ,xlab = ifelse(i==1,"SPAR",""),
+        ylab = ifelse(i==1,"Simulated data","") ,xlab = ifelse(i==1,"SPAR",""),
         main = bquote(X[.(i)]))
       abline(a=0,b=1,lwd=4,col=2)
       points(sim.quants,obs.quants,pch=16,col="black",cex=1.3)
@@ -651,61 +660,298 @@ for (j in 1:p) {
 
 dev.off()
 
-#HERE ...................................
+# Finally, we compute return level plots for the upper and lower tails of both marginal variable  
 
-# Now add return level plots and we are done
+# Specify number of observations per year. Given weekly maxima, this would be 52 (for the climate simulations)
 
-# Also adjust the below 
+n_y <- 52
+
+# Specify fixed return periods for computing return levels from model 
+
+fix_RPs <- exp(seq(log(10),log(1000),length.out = 3000))
+
+# Compute upper tail probabilities associated with fixed return periods 
+
+fix_probs <- 1/(fix_RPs*n_y)
+
+# We save both return level plots as pngs
 
 png(
-  filename = paste0("Plots/SPAR_illustration_1",".png"),
+  filename = paste0("../figures/example_upper_tail_rl_plot.png"),
+  width = 2800, height = 1400, res = 400
+)
+
+par(mar = c(4, 4.5, 4, 2))
+
+par(mgp = c(2.8, 0.7, 0))
+
+par(mfrow=c(1,2))
+
+for(i in 1:p){
+  
+  # Use rank transform to workout empirical return periods 
+  
+  emp_probs <- 1 - rank(X.sim[,i])/(nrow(X.sim)+1)
+  
+  emp_RPs <- 1/(n_y*emp_probs)
+  
+  # Just consider empirical return periods above 10 years
+  
+  emp_RLs <- X.sim[,i][emp_RPs>=10]
+  
+  emp_RPs <- emp_RPs[emp_RPs>=10]
+  
+  # Compute model return levels using data simulated from the SPAR model 
+  
+  model_RLs <- quantile(X.spar.sim[,i],1-fix_probs)
+  
+  plot(
+    fix_RPs, model_RLs,
+    log = "x",
+    type = "l", lwd=3, col = "grey",
+    xlab = "Return period (years)",
+    ylab = "Return level",
+    xaxt = "n",
+    cex.lab=1.3,cex.main=1.5,
+    ylim=range(emp_RLs,model_RLs),
+    main=bquote(X[.(i)] ~ "upper tail")
+  )
+  
+  lines(fix_RPs, model_RLs, lwd=3, col = "grey3")
+  
+  points(emp_RPs,emp_RLs,pch=16,col="darkblue",cex=1.4)
+  
+  ticks <- c(10, 100, 1000)
+  
+  axis(1, at = ticks, labels = as.character(ticks))
+
+}
+
+dev.off()
+
+png(
+  filename = paste0("../figures/example_lower_tail_rl_plot.png"),
+  width = 2800, height = 1400, res = 400
+)
+
+par(mar = c(4, 4.5, 4, 2))
+
+par(mgp = c(2.8, 0.7, 0))
+
+par(mfrow=c(1,2))
+
+for(i in 1:p){
+  
+  # Use rank transform to workout empirical return periods 
+  
+  emp_probs <- rank(X.sim[,i])/(nrow(X.sim)+1)
+  
+  emp_RPs <- 1/(n_y*emp_probs)
+  
+  # Just consider empirical return periods above 10 years
+  
+  emp_RLs <- X.sim[,i][emp_RPs>=10]
+  
+  emp_RPs <- emp_RPs[emp_RPs>=10]
+  
+  # Compute model return levels using data simulated from the SPAR model 
+  
+  model_RLs <- quantile(X.spar.sim[,i],fix_probs)
+  
+  plot(
+    fix_RPs, model_RLs,
+    log = "x",
+    type = "l", lwd=3, col = "grey",
+    xlab = "Return period (years)",
+    ylab = "Return level",
+    xaxt = "n",
+    cex.lab=1.3,cex.main=1.5,
+    ylim=range(emp_RLs,model_RLs),
+    main=bquote(X[.(i)] ~ "lower tail")
+  )
+  
+  lines(fix_RPs, model_RLs, lwd=3, col = "grey3")
+  
+  points(emp_RPs,emp_RLs,pch=16,col="darkblue",cex=1.4)
+  
+  ticks <- c(10, 100, 1000)
+  
+  axis(1, at = ticks, labels = as.character(ticks))
+  
+}
+
+dev.off()
+
+# Example SPAR illustration figures from paper ----------------------------
+
+# We now recreate the illustrative figures from the article that help to explain the SPAR model formulation/paradigm  
+
+# First, we show what discharge data could look like prior to pre-processing 
+
+png(
+  filename = paste0("../figures/SPAR_illustration_preprocess.png"),
   width = 2000, height = 2000, res = 400
 )
 
-par(mar = c(4, 4, 3, 1), mgp = c(2.5, 0.7, 0))
+par(mar = c(4, 4.2, 3, 1), mgp = c(2.5, 0.7, 0))
 
-plot(X.norm, pch = 16, col = rgb(0.5, 0.5, 0.5, 1), cex = 0.7,xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,xlim=c(-10,10),ylim=c(-10,10),asp=1)
+par(mfrow=c(1,1))
+
+# We reverse the pre-processing step using an arbitrary geometric mean and standard deviations 
+
+X.obs = apply(rbind(c(2,4),X.sim),2,function(x){return( x[-1] + x[1] )})
+
+X.obs = apply(X.obs,2,function(x){return( log(1 + exp(x)) )})
+
+X.obs = apply(rbind(c(10,20),X.obs),2,function(x){return( x[-1]*x[1] )})
+
+plot(X.obs, 
+     pch = 16, col = rgb(0.5, 0.5, 0.5, 1), cex = 0.7,
+     xlab=expression(X[1]^o),ylab=expression(X[2]^o),cex.lab=1.3,
+     xlim=range(X.obs[,1]),ylim=range(X.obs[,2]),
+     frame.plot=F)
 
 mtext("(a)", side = 3, line = 1, adj = 0, cex = 1.5)
 
+points(log(1 + exp(2))*10,log(1 + exp(4))*20,col="blue",cex=1,pch=16)
+
 dev.off()
 
+# Next we plot the simulated data 'after' pre-processing (i.e., centered at (0,0)). We also illustrate the angular-radial decomposition 
 
 png(
-  filename = paste0("Plots/SPAR_illustration_2",".png"),
+  filename = paste0("../figures/SPAR_illustration_1.png"),
   width = 2000, height = 2000, res = 400
 )
 
-par(mar = c(4, 4, 3, 1), mgp = c(2.5, 0.7, 0))
+par(mar = c(4, 4.2, 3, 1), mgp = c(2.5, 0.7, 0))
 
-plot(X.norm[which(pred.quant >= R),], pch = 16,asp=1, col = rgb(0.5, 0.5, 0.5, 1), cex = 0.7,xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,xlim=c(-10,10),ylim=c(-10,10))
-points(X.norm.excess,pch=16,col = rgb(0, 1, 0, 1),cex=0.7)
-lines(quant.set,lwd=3,col="red")
+par(mfrow=c(1,1))
+
+plot(X.sim, 
+     pch = 16, col = rgb(0.5, 0.5, 0.5, 1), cex = 0.7,
+     xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,
+     xlim=c(-10,10),ylim=c(-10,10),
+     asp=1,frame.plot=F)
 
 mtext("(b)", side = 3, line = 1, adj = 0, cex = 1.5)
 
+# Compute radius and bivaraite angle for a single point 
+
+ind = 22246
+
+phi = atan2(X.sim[ind,2],X.sim[ind,1])
+
+r = sqrt(X.sim[ind,2]^2+X.sim[ind,1]^2)
+
+# Illustrate point with corresponding radius and angle, alongside hypersphere (i.e., unit circle) 
+
+arrows(0, 0, r*cos(phi), r*sin(phi), length = 0.1, col = "green3", lwd = 2.5)
+
+points(X.sim[ind,1],X.sim[ind,2],col="orange",cex=1,pch=16)
+
+points(0,0,col="blue",cex=1,pch=16)
+
+pred_phis = seq(0,2*pi,len=201)
+
+lines(cbind(cos(pred_phis),sin(pred_phis)),lwd=1.5,col=2)
+
+points(cos(phi),sin(phi),col="purple",cex=1,pch=16)
+
+legend(
+  "topleft",
+  legend = c(expression(paste("(", 0, ",", 0, ")")), 
+             expression(paste("(", x[1], ",", x[2], ")")), 
+             expression(paste("(", w[1], ",", w[2], ")")), 
+             expression(r)),
+  col = c("blue", "orange", "purple", "green3"),  # Colors for each legend item
+  pch = c(16, 16, 16, NA),                # Points for the first three, no point for the last
+  lty = c(0, 0, 0, 1),                    # No line for the first three, line for the last
+  lwd = c(NA, NA, NA, 2.5)                # Line width for the last item
+)
+
 dev.off()
 
+# We illustrate the threshold exceeding observations in the plot below (the joint tail)
+
+# We compute the quantile set on a dense grid of angles 
+
+W.circle <- cbind(cos(pred_phis),sin(pred_phis))
+
+u.circle <- k_get_value(quant.model(k_constant(W.circle)))
+
+quant.set <- c(u.circle)*W.circle
 
 png(
-  filename = paste0("Plots/SPAR_illustration_3",".png"),
+  filename = paste0("../figures/SPAR_illustration_2.png"),
   width = 2000, height = 2000, res = 400
 )
 
-par(mar = c(4, 4, 3, 1), mgp = c(2.5, 0.7, 0))
+par(mar = c(4, 4.2, 3, 1), mgp = c(2.5, 0.7, 0))
 
-plot(X.norm.excess, pch = 16,asp=1, col = rgb(0, 1, 0, 1), cex = 0.7,xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,xlim=c(-10,10),ylim=c(-10,10))
+par(mfrow=c(1,1))
+
+# Plot observations in the joint body
+
+plot(X.body,
+     pch = 16,asp=1, col = rgb(0.5, 0.5, 0.5, 1), cex = 0.7,
+     xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,
+     xlim=c(-10,10),ylim=c(-10,10),
+     frame.plot=F)
+
+# Plot observations in the joint tail 
+
+points(X.tail,pch=16,col = rgb(0, 1, 0, 1),cex=0.7)
+
+# Plot the quantile set 
+
 lines(quant.set,lwd=3,col="red")
-rect(quant.set.maxima,-15,15,15,col = rgb(0.5, 0.5, 0.5, 0.15),border = "black",lwd=2,lty=2)
-text(7,-2,label = expression(bold(X[1] > q[1]^M)),cex=1.4,col="black",font=2)
 
 mtext("(c)", side = 3, line = 1, adj = 0, cex = 1.5)
+
+dev.off()
+
+# We illustrate example tail regions for which one can perform inference via the SPAR model 
+
+# Compute the componentwise maxima of the quantile set 
+
+quant.set.maxima <- apply(quant.set,2,max)
+
+png(
+  filename = paste0("../figures/SPAR_illustration_3.png"),
+  width = 2000, height = 2000, res = 400
+)
+
+par(mar = c(4, 4.2, 3, 1), mgp = c(2.5, 0.7, 0))
+
+par(mfrow=c(1,1))
+
+# Plot observations in the joint tail 
+
+plot(X.tail, 
+     pch = 16,asp=1, col = rgb(0, 1, 0, 1), cex = 0.7,
+     xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,
+     xlim=c(-10,10),ylim=c(-10,10),
+     frame.plot=F)
+
+# Plot quantile set 
+
+lines(quant.set,lwd=3,col="red")
+
+mtext("(d)", side = 3, line = 1, adj = 0, cex = 1.5)
+
+# Tail region 1
+
+rect(quant.set.maxima,-15,15,15,col = rgb(0.5, 0.5, 0.5, 0.15),border = "black",lwd=2,lty=2)
+
+text(7,-2,label = expression(bold(X[1] > q[1]^M)),cex=1.4,col="black",font=2)
+
+# Tail region 2
 
 rect(-15, 4, -2, 15, col = rgb(0, 0, 1, 0.15), border = "blue", lwd = 2, lty = 2)
 text(-6.5,7,label = expression(bold(X[1] < -2) * "," * bold(X[2] > 4)),cex=1.4,col="blue")
 
-# rect(-15, -15, 15, -4, col = rgb(1, 0.647, 0, 0.15), border = "orange", lwd = 2, lty = 2)
-# text(-7,-8,label = expression(bold(X[2] < -4)),cex=1.4,col="orange")
+# Tail region 3
 
 x_poly <- c(-26, 20, -26)
 y_poly <- c(20,-26,-26)
@@ -715,32 +961,14 @@ text(-7,-8,label = expression(bold(X[1] + X[2] < -6)),cex=1.4,col="orange")
 
 dev.off()
 
-n.sim = 1e4
+# Finally, we illustrate a range of example events sets that one can simulate via the SPAR model 
 
-X.norm.excess = X.norm[which(pred.quant < R),]
+# We just look at the first 10000 simulated observations (to avoid plotting a very large number of points)
 
-# W.sim = W[sample(1:nrow(W), n.sim,replace=T),]
-
-W.excess = W[which(pred.quant < R),]
-
-W.sim = W.excess[sample(1:nrow(W.excess), n.sim,replace=T),]
-u.sim <- k_get_value(quant.model(k_constant(W.sim)))
-
-dim(u.sim) = c(length(u.sim), 1)
-
-pred.GPD.sim <- k_get_value(GPD.model(list(k_constant(W.sim), k_constant(u.sim))))
-nu.sim = pred.GPD.sim[, 1]
-xi.sim = pred.GPD.sim[, 2]
-
-unif_sample = runif(n.sim,0,1)
-R.sim = apply(cbind(unif_sample,u.sim,nu.sim,xi.sim),1,function(x)
-  qgpd(x[1], loc=x[2], scale = x[3]/(1+ x[4]), shape=x[4])
-)
-
-X.sim.excess = R.sim*W.sim
+X.tail.sim2 = X.tail.sim[1:10000,]
 
 png(
-  filename = paste0("Plots/SPAR_event_sets",".png"),
+  filename = paste0("../figures/SPAR_event_sets.png"),
   width = 4500, height = 1500, res = 400
 )
 
@@ -748,31 +976,67 @@ par(mgp = c(2.8, 0.7, 0))
 
 par(mfrow=c(1,3))
 
-plot(X.sim.excess,pch=16,col = rgb(0, 1, 0, 1),cex=0.7,xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,xlim=c(-12,12),ylim=c(-12,12))
+# Event set 1: X_1 greater than 5
+
+plot(X.tail.sim2,
+     pch=16,col = rgb(0, 1, 0, 1),cex=0.7,
+     xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,
+     xlim=c(-12,12),ylim=c(-12,12))
+
 lines(quant.set,lwd=3,col="red")
+
 rect(5,-15,15,15,col = rgb(0, 0, 1, 0.15),border = "blue",lwd=2,lty=2)
+
 text(8,-3,label = expression(bold(X[1] > 5)),cex=1.6,col="blue",font=2)
-points(X.sim.excess[X.sim.excess[,1]>5,],pch=16,col="blue", cex = 0.7)
 
-plot(X.sim.excess,pch=16,col = rgb(0, 1, 0, 1),cex=0.7,xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,xlim=c(-12,12),ylim=c(-12,12))
+points(X.tail.sim2[X.tail.sim2[,1]>5,],pch=16,col="blue", cex = 0.7)
+
+# Event set 2: X_1 + X_2 > 6
+
+plot(X.tail.sim2,
+     pch=16,col = rgb(0, 1, 0, 1),cex=0.7,
+     xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,
+     xlim=c(-12,12),ylim=c(-12,12))
+
 lines(quant.set,lwd=3,col="red")
+
 x_poly <- c(26, -20, 26)
-y_poly <- c(-20,26,26)
-polygon(x_poly, y_poly,col = rgb(0, 0, 1, 0.15),border = "blue",lwd=2,lty=2)
-text(7,11,label = expression(bold(X[1] + X[2] > 6)),cex=1.6,col="blue",font=2)
-points(X.sim.excess[rowSums(X.sim.excess)>6,],pch=16,col="blue", cex = 0.7)
 
-plot(X.sim.excess,pch=16,col = rgb(0, 1, 0, 1),cex=0.7,xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,xlim=c(-12,12),ylim=c(-12,12))
+y_poly <- c(-20,26,26)
+
+polygon(x_poly, y_poly,col = rgb(0, 0, 1, 0.15),border = "blue",lwd=2,lty=2)
+
+text(7,11,label = expression(bold(X[1] + X[2] > 6)),cex=1.6,col="blue",font=2)
+
+points(X.tail.sim2[rowSums(X.tail.sim2)>6,],pch=16,col="blue", cex = 0.7)
+
+# Event set 2: (X_1^2 + X_2^2) > 5^2
+
+plot(X.tail.sim2,
+     pch=16,col = rgb(0, 1, 0, 1),cex=0.7,
+     xlab=expression(X[1]),ylab=expression(X[2]),cex.lab=1.3,
+     xlim=c(-12,12),ylim=c(-12,12))
+
 lines(quant.set,lwd=3,col="red")
+
 theta <- seq(0, 2*pi, length.out = 100)
+
 outer_x <- 20 * cos(theta)
+
 outer_y <- 20 * sin(theta)
+
 inner_x <- 5 * cos(theta)
+
 inner_y <- 5 * sin(theta)
+
 all_x <- c(outer_x, NA, inner_x)
+
 all_y <- c(outer_y, NA, inner_y)
+
 polypath(all_x, all_y,col = rgb(0, 0, 1, 0.15),border = "blue",lwd=2,lty=2)
+
 text(-7,10,label = expression(bold(X[1]^2 + X[2]^2 > 5^2)),cex=1.6,col="blue",font=2)
-points(X.sim.excess[rowSums(X.sim.excess^2)>25,],pch=16,col="blue", cex = 0.7)
+
+points(X.tail.sim2[rowSums(X.tail.sim2^2)>25,],pch=16,col="blue", cex = 0.7)
 
 dev.off()
