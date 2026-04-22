@@ -1,6 +1,6 @@
 # DeepSPAR-hydroSMILE
 
-**This repository provides the R code accompanying the methodology presented in Murphy-Barltrop et al. (2026). Note this repository adapts and develops the code accompanying Mackay et al. (2025) for fitting the SPAR model (Mackay and Jonathan (2023)) using deep learning techniques.**
+**This repository provides the R code accompanying the methodology presented in Murphy-Barltrop et al. (2026). Note this repository adapts and develops the code accompanying Mackay et al. (2025) for fitting the SPAR model (Mackay and Jonathan, 2023) using deep learning techniques.**
 
 In this work, we apply the recently proposed 'Deep SPAR' framework to model concurrent river floods and droughts in four catchments in the Upper Danube basin, based on discharge simulated by a hydrological model driven with large ensemble climate model output (hydroSMILE). Example figures illustrating the SPAR modelling procedure are given below.
 
@@ -29,15 +29,15 @@ Go to the CRAN website (https://cran.r-project.org/) and follow the instructions
 RStudio is an IDE (Integrated Development Environment) that makes working with R much easier.
 Go to the Posit download page (https://posit.co/download/rstudio-desktop), download the free RStudio Desktop version for your operating system, and run the installer.
 
-### 1. Set up a Python Virtual Machine in R in order to run Keras + Tensorflow
+### 1. Set up a Virtual Envrionment via R in order to run Python with Keras + Tensorflow
 
-This requires one to install several packages in R, then create a virtual machine and install the relevant software on said machine. All of the instructions for performing this step are containing in the following script:
+This requires one to install several packages in R, then create a virtual environment and install the relevant software. All of the instructions for performing this step are containing in the following script:
 
 **scripts/virtual_env_script.R**
 
-Open this script in RStudio and follow the instructions. Please run through this script prior to attempting to run any of the other scripts. If you encounter any errors, we recommend using an LLM to debug, since minor changes are sometimes required for different operating systems.  
+Open this script in RStudio and follow the instructions. Please run through this script prior to attempting to run any of the other scripts. If you encounter any errors, we recommend using an LLM to debug, since minor changes are sometimes required for different operating systems. A Conda environment can also be used in place of a virtual environment, by replacing the relevant `reticulate` code.
 
-After setting up the virtual machine, please restart R and RStudio. 
+After setting up the virtual envrionment, please restart R and RStudio. 
 
 ### 2. Pre-processing 
 
