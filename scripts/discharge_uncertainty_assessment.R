@@ -2,48 +2,49 @@
 
 rm(list=ls())
 
-# It is highly recommended to run this on a SLURM submission system. Set the array_ids on the system to run from 1 - 4000
+# It is highly recommended to run this on a SLURM submission system. Set the array ids on the system to run from 1 - 4000
 
-array_id=commandArgs(trailingOnly=T) #Assuming job array submission with bash/slurm
+array_id=commandArgs(trailingOnly=T) #Assuming job array submission with slurm
 array_id=as.numeric(array_id)
+
+# If SLURM + HPC is not available, the code can be run in a for loop via 
+# for(array_id in 1:400){
+#   
+#   #The rest of the script goes here 
+#   
+# }
+# However be warned this will take a while 
 
 # NN and GPD tuning parameters --------------------------------------------
 
+# Flag for fitting models. Can be set to F once models weights are saved   
 fit_models = T
 
-#NN layers/neurons 
 nn.nunits = c(32,32,32)
 
-#GPD quantile level 
 quant.level = 0.85
 
-#Set initial shape parameter
 init_shape = 0.1
 
-#Vector of decreasing learning rates
 l.r.vec = c(0.001, 5e-04, 0.00025, 1e-04, 5e-05)  
 
-#Link function for shape parameter
-gpd.shape.custom_activation <- function(x) { #Bound to [-.5,.5]
+gpd.shape.custom_activation <- function(x) { 
   tf$atan(x)/pi
 }
 
-init_bias = tan(pi*(init_shape)) #Compute initial biases (to ensure valid starting parameters)
+init_bias = tan(pi*(init_shape)) 
 
-#NN activation function 
 activation.func = "relu"
 
-#Number of bootstraps 
+# Number of bootstraps 
 n_boot = 100
 
-n_y = 52 #(varies slightly depending on year)
+n_y = 52 
 
 # Packages and VE ---------------------------------------------------------
 
-# Load some useful functions and packages
 source("preamble.R")
 
-# Load tensorflow/Keras and Virtual Environment 
 reticulate::use_virtualenv("DeepSPAR_env", required = T)
 packages = c("keras", "tensorflow","reticulate")
 package.check <- lapply(packages, FUN = function(x) {
@@ -53,33 +54,23 @@ package.check <- lapply(packages, FUN = function(x) {
   }
 })
 
-# Set tensorflow seed
 tensorflow::set_random_seed(array_id+1)
 
 # Data --------------------------------------------------------------------
 
-# Locations of stations 
 river_names = c("ammer","iller","lech","loisach")
 
-#Split into four 30 year windows
 time_periods = list(1980:2009,2010:2039,2040:2069,2070:2099)
 
-# Load in data and standardisations constants 
-std_sigmas = readRDS(file = "RunOffData/std_sigmas.rds")
+std_sigmas = readRDS(file = "../data/preprocessed_data/std_sigmas.rds")
 
-std_mus = readRDS(file = "RunOffData/std_mus.rds")
+std_mus = readRDS(file = "../data/preprocessed_data/std_mus.rds")
 
-std_tw_dfs = readRDS(file = "RunOffData/std_tw_dfs.rds")
+std_tw_dfs = readRDS(file = "../data/preprocessed_data/std_tw_dfs.rds")
 
-os_tw_dfs = readRDS(file = "RunOffData/os_tw_dfs.rds")
+os_tw_dfs = readRDS(file = "../data/preprocessed_data/os_tw_dfs.rds")
 
-l1_seq_upper = 1000
-
-l1_seq_lower = 30
-
-prob_RPs = c(10)
-
-# Fitting across all pairs ------------------------------------------------
+# Estimating threshold function ------------------------------------------------
 
 indices_grid = expand.grid(1:n_boot,c(1:length(time_periods)))
 
@@ -88,33 +79,23 @@ print(paste("Processing task", array_id))
 # Index of bootstrap iteration 
 boot_ind = indices_grid$Var1[array_id]
 
-# Index of time window. We use middle of the period for optimisation
-time_window_ind = indices_grid$Var2[array_id]
+# Index of time window
+tw_ind = indices_grid$Var2[array_id]
 
-# if(file.exists(file=paste0("BootVals/model_prob_ests_4d","_bootind_",boot_ind,"_tw_",time_window_ind,".rds"))){
-#   stop("Script already finished")
-# }
+X.norm = std_tw_dfs[[tw_ind]]
 
-# Extract normalised data
-X.norm = std_tw_dfs[[time_window_ind]]
-
-# Resample rows in data randomly
+# Resample rows in pre-processed data randomly
 set.seed(boot_ind+1)
 X.norm = X.norm[sample(1:nrow(X.norm),nrow(X.norm),replace=T),]
 
-polar = rect2polar(t(X.norm))  #Get polar coordinates
 n = dim(X.norm)[1]
 d = dim(X.norm)[2]
 
-# Create AR decomp 
-R = polar$r
+R <- apply(X.norm,1,l2_norm)
 W = X.norm/R
 W = as.matrix(W)
 
-# Make 10% validation data
 valid.inds = sample(1:n, round(n/10))
-
-# Build quantile regression model
 
 R.train <- R[-valid.inds]
 W.train <- W[-valid.inds,]
@@ -145,12 +126,10 @@ qBranch <- qBranch %>%
               name = "q_final", 
               kernel_regularizer = regularizer_l1_l2(l1 = 1e-04,l2 = 1e-04))  
 
-# Construct Keras model
 quant.model <- keras_model(inputs = c(input_pseudo_angles), 
                            outputs = c(qBranch))
 
 
-# Compile the model with the tilted loss and the adam optimiser
 quant.model %>%
   compile(optimizer = "adam", 
           loss = tilted_loss, 
@@ -158,7 +137,10 @@ quant.model %>%
 
 if(fit_models){
   
-  checkpoint <- callback_model_checkpoint(filepath = paste0("runs/QR_est/qr_fit_4d_","bootind_",boot_ind,"_tw_",time_window_ind), 
+  checkpoint_dir <- tempdir()
+  checkpoint_path <- file.path(checkpoint_dir, paste0("QR_checkpoint_bootind_",boot_ind,"_tw_",tw_ind))
+  
+  checkpoint <- callback_model_checkpoint(filepath = checkpoint_path, 
                                           monitor = "val_loss", 
                                           verbose = 0,
                                           save_best_only = TRUE, 
@@ -177,22 +159,22 @@ if(fit_models){
         callback = list(checkpoint,callback_early_stopping(monitor = "val_loss", min_delta = 0, patience = 5)), 
         validation_data = list(list(input_pseudo_angles = W.valid),R.valid))
   
-  # Load the best fitting model from the checkpoint save
-  quant.model <- load_model_weights_tf(quant.model, filepath = paste0("runs/QR_est/qr_fit_4d_","bootind_",boot_ind,"_tw_",time_window_ind))
+  quant.model <- load_model_weights_tf(quant.model, filepath = checkpoint_path)
   
-  # Then save the best model.
-  save_model_tf(quant.model, paste0("runs/QR_est/qr_fit_4d_","bootind_",boot_ind,"_tw_",time_window_ind))
+  save_model_tf(quant.model, paste0("../nn_parameters/QR_est/qr_fit_bootind_",boot_ind,"_tw_",tw_ind))
+  
+  unlink(checkpoint_dir, recursive = TRUE)
   
 }
 
-quant.model <- tf$saved_model$load(paste0("runs/QR_est/qr_fit_4d_","bootind_",boot_ind,"_tw_",time_window_ind))
+quant.model <- tf$saved_model$load(paste0("../nn_parameters/QR_est/qr_fit_bootind_",boot_ind,"_tw_",tw_ind))
 
 pred.quant <- k_get_value(quant.model(k_constant(W)))
 
-# Compute threshold exceedances 
+# Estimating GPD parameter functions --------------------------------------
+
 u <- pred.quant
 
-# Create training and validation data
 R.train <- (R - u)[-valid.inds]
 W.train <- W[-valid.inds, ]
 u.train <- u[-valid.inds]
@@ -262,7 +244,6 @@ shape.Branch <- gpd.Branch %>%
 
 output <- layer_concatenate(c(scale.Branch, shape.Branch, input_u, input_pseudo_angles))
 
-# Construct Keras model
 GPD.model <- keras_model(inputs = c(input_pseudo_angles, input_u), outputs = output)
 summary(GPD.model)
 
@@ -276,7 +257,7 @@ if(fit_models){
   n.epochs <- 750
   batch.size = length(R.train)
   
-  checkpoint <- callback_model_checkpoint(filepath = paste0("runs/GPD_est_4d/tmp_",array_id,"/gpd_fit_{epoch:02d}"), 
+  checkpoint <- callback_model_checkpoint(filepath = paste0("../nn_parameters/GPD_est/tmp_bootind_",boot_ind,"_tw_",tw_ind,"/gpd_fit_{epoch:02d}"), 
                                           monitor = "val_loss", 
                                           verbose = 0, 
                                           save_best_only = FALSE, 
@@ -298,21 +279,18 @@ if(fit_models){
   optimal_epoch = which.min(history$metrics$val_loss)
   
   GPD.model <- load_model_weights_tf(GPD.model,
-                                     filepath = paste0("runs/GPD_est_4d/tmp_",array_id,"/gpd_fit_",sprintf("%02d", optimal_epoch-1)))
+                                     filepath = paste0("../nn_parameters/GPD_est/tmp_bootind_",boot_ind,"_tw_",tw_ind,"/gpd_fit_",sprintf("%02d", optimal_epoch-1)))
   
   save_model_weights_tf(GPD.model,  
-                        paste0("runs/GPD_est_4d/tmp_",array_id,"/gpd_fit_best"))
+                        paste0("../nn_parameters/GPD_est/tmp_bootind_",boot_ind,"_tw_",tw_ind,"/gpd_fit_best"))
   
   save_model_tf(GPD.model, 
-                paste0("runs/GPD_est_4d/gpd_fit_","bootind_",boot_ind,"_tw_",time_window_ind))
+                paste0("../nn_parameters/GPD_est/gpd_fit_bootind_",boot_ind,"_tw_",tw_ind))
   
-  # Load best validation loss value 
   best.valid.loss <- history$metrics$val_loss[which.min(history$metrics$val_loss)-1]
   
-  # Adjust number of epochs for further optimisation 
   n.epochs <- 200
   
-  # Decreasing learning rate training scheme
   for (k in 2:length(l.r.vec)) {
     
     print(paste0("Decreasing learning rate size to: ", l.r.vec[k]))
@@ -329,7 +307,6 @@ if(fit_models){
           callback = list(checkpoint,callback_early_stopping(monitor = "val_loss", min_delta = 0, patience = 10)),
           validation_data = list(list(input_pseudo_angles = W.valid,input_u = u.valid), R.valid))
     
-    # Check to see if validation loss has decreased
     if (length(which.min(history$metrics$val_loss)) > 0) {
       
       if (min(history$metrics$val_loss, na.rm = T) > best.valid.loss) {
@@ -353,47 +330,46 @@ if(fit_models){
     if (!is.na(optimal_epoch)) {
       
       GPD.model <- load_model_weights_tf(GPD.model,
-                                         filepath = paste0("runs/GPD_est_4d/tmp_",array_id,"/gpd_fit_",sprintf("%02d", optimal_epoch)))
+                                         filepath = paste0("../nn_parameters/GPD_est/tmp_bootind_",boot_ind,"_tw_",tw_ind,"/gpd_fit_",sprintf("%02d", optimal_epoch)))
       
       save_model_weights_tf(GPD.model,  
-                            paste0("runs/GPD_est_4d/tmp_",array_id,"/gpd_fit_best"))
+                            paste0("../nn_parameters/GPD_est/tmp_bootind_",boot_ind,"_tw_",tw_ind,"/gpd_fit_best"))
       
       save_model_tf(GPD.model, 
-                    paste0("runs/GPD_est_4d/gpd_fit_","bootind_",boot_ind,"_tw_",time_window_ind))
+                    paste0("../nn_parameters/GPD_est/gpd_fit_bootind_",boot_ind,"_tw_",tw_ind))
       
     } else{
       
       load_model_weights_tf(GPD.model,  
-                            paste0("runs/GPD_est_4d/tmp_",array_id,"/gpd_fit_best"))
+                            paste0("../nn_parameters/GPD_est/tmp_bootind_",boot_ind,"_tw_",tw_ind,"/gpd_fit_best"))
       
     }
     
   }
   
   
-  unlink(paste0("runs/GPD_est_4d/tmp_",array_id,""),recursive = T, force = T)
+  unlink(paste0("../nn_parameters/GPD_est/tmp_bootind_",boot_ind,"_tw_",tw_ind,""),recursive = T, force = T)
   
 }
 
-GPD.model<- load_model_tf(filepath = paste0("runs/GPD_est_4d/gpd_fit_","bootind_",boot_ind,"_tw_",time_window_ind),
+GPD.model<- load_model_tf(filepath = paste0("../nn_parameters/GPD_est/gpd_fit_bootind_",boot_ind,"_tw_",tw_ind),
                           custom_objects = list(GPD_loss=GPD_loss))
 
-#Validation 
+# Computing diagnostic quantities  ----------------------------------------
 
-#Evaluating model fit on thresh exc
 pred.GPD.exc <- k_get_value(GPD.model(list(k_constant(W[R-u>0,]), k_constant(matrix(u[R-u>0],ncol=1)))))
 
 obs_quants = qexp(apply(cbind(u[R-u>0], pred.GPD.exc[,1:2], R[R-u>0]), 1, function(x) pgpd(x[4], loc = x[1], scale = x[2]/(1 +x[3]), x[3])))
 
-ps = readRDS(file = paste0("BootVals/gpd_qq_prob_tw_",time_window_ind,".rds"))
+ps = readRDS(file = paste0("../computed_model_vals/gpd_qq_prob_tw_",tw_ind,".rds"))
 
 boot_quants = quantile(obs_quants,ps)
 
-saveRDS(boot_quants,file = paste0("BootVals/gpd_qq_quants_","bootind_",boot_ind,"_tw_",time_window_ind,".rds"))
+saveRDS(boot_quants,file = paste0("../computed_model_vals/gpd_qq_quants_","bootind_",boot_ind,"_tw_",tw_ind,".rds"))
 
 n.sim.tail = 2e6
 
-n.sim = round((n.sim.tail/(100*(1-quant.level)))*100)
+n.sim = round((n.sim.tail/(1-quant.level)))
 
 X.norm.body = X.norm[which(pred.quant >= R),]
 
@@ -423,9 +399,9 @@ X.sim = rbind(X.sim.body,X.sim.excess)
 
 rm(u.sim,pred.GPD.sim,unif_sample,nu.sim,xi.sim,R.sim,W.sim)
 
-mus = std_mus[[time_window_ind]]
+mus = std_mus[[tw_ind]]
 
-sigmas = std_sigmas[[time_window_ind]]
+sigmas = std_sigmas[[tw_ind]]
 
 X.excess.obs.os = apply(rbind(mus,X.norm.excess),2,function(x){return( x[-1] + x[1] )})
 
@@ -451,17 +427,16 @@ u_vec = seq(0.8,0.99,by = 0.01)
 
 p <- ncol(X.excess.sim.os)
 
-
 for (j in 1:p) {
   for (i in 1:p) {
 
     if (i == j) {
 
-      ps = readRDS(file = paste0("BootVals/marg_qq_prob_",labels[j],"_tw_",time_window_ind,".rds"))
+      ps = readRDS(file = paste0("../computed_model_vals/marg_qq_prob_",labels[j],"_tw_",tw_ind,".rds"))
 
       sim_quants = quantile(X.excess.sim.os[, j],ps)
 
-      saveRDS(sim_quants,file = paste0("BootVals/marg_qq_quants_",labels[j],"_bootind_",boot_ind,"_tw_",time_window_ind,".rds"))
+      saveRDS(sim_quants,file = paste0("../computed_model_vals/marg_qq_quants_",labels[j],"_bootind_",boot_ind,"_tw_",tw_ind,".rds"))
 
     } else if (j > i) {
 
@@ -473,7 +448,7 @@ for (j in 1:p) {
 
       lam_sim <- sapply(u_vec,tail_dep,x=xs,y=ys)
 
-      saveRDS(lam_sim,file = paste0("BootVals/chi_plot_",labels[i],"_",labels[j],"_bootind_",boot_ind,"_tw_",time_window_ind,".rds"))
+      saveRDS(lam_sim,file = paste0("../computed_model_vals/chi_plot_",labels[i],"_",labels[j],"_bootind_",boot_ind,"_tw_",tw_ind,".rds"))
 
     }
   }
@@ -491,7 +466,7 @@ for(i in 1:d){
 
   model_RLs = log(1+exp(model_RLs+mus[i]))*sigmas[i]
 
-  saveRDS(model_RLs,file = paste0("BootVals/rl_ests_4d_upper_",title,"_bootind_",boot_ind,"_tw_",time_window_ind,".rds"))
+  saveRDS(model_RLs,file = paste0("../computed_model_vals/rl_ests_upper_",title,"_bootind_",boot_ind,"_tw_",tw_ind,".rds"))
 
 }
 
@@ -507,9 +482,17 @@ for(i in 1:d){
 
   model_RLs = log(1+exp(model_RLs+mus[i]))*sigmas[i]
 
-  saveRDS(model_RLs,file = paste0("BootVals/rl_ests_4d_lower_",title,"_bootind_",boot_ind,"_tw_",time_window_ind,".rds"))
+  saveRDS(model_RLs,file = paste0("../computed_model_vals/rl_ests_lower_",title,"_bootind_",boot_ind,"_tw_",tw_ind,".rds"))
 
 }
+
+# Estimating tail probabilities from SPAR model ----------------------------------------------------------------------
+
+l1_seq_upper = 1000
+
+l1_seq_lower = 30
+
+prob_RPs = c(10)
 
 est_RLs_upper = matrix(NA,ncol=d,nrow=length(prob_RPs))
 
@@ -517,13 +500,9 @@ est_RLs_lower = matrix(NA,ncol=d,nrow=length(prob_RPs))
 
 for(i in 1:d){
 
-  #Upper tail return levels
-
   est_RLs_upper[,i] = quantile(X.norm[,i],1-(1/(n_y*prob_RPs)))
 
   est_RLs_upper[,i] = log(1+exp(est_RLs_upper[,i]+mus[i]))*sigmas[i]
-
-  #Lower tail return levels
 
   est_RLs_lower[,i] = quantile(X.norm[,i],(1/(n_y*prob_RPs)))
 
@@ -563,5 +542,5 @@ lower_cdf_ests = apply(est_RLs_lower,1,function(ret_levels){
 
 probs_list = list(l1_seq_upper = l1_seq_upper, l1_seq_lower = l1_seq_lower, est_RLs_upper=est_RLs_upper, est_RLs_lower=est_RLs_lower, l1_upper_ests=l1_upper_ests, l1_lower_ests=l1_lower_ests, upper_surv_ests=upper_surv_ests, lower_cdf_ests=lower_cdf_ests)
 
-saveRDS(probs_list,file=paste0("BootVals/model_prob_ests_4d","_bootind_",boot_ind,"_tw_",time_window_ind,".rds"))
+saveRDS(probs_list,file=paste0("../computed_model_vals/model_prob_ests_bootind_",boot_ind,"_tw_",tw_ind,".rds"))
 

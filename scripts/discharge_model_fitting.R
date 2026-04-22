@@ -9,40 +9,32 @@ if(!(tw_ind %in% 1:4)){stop("tw_ind must be in c(1,2,3,4)")}
 
 # NN and GPD tuning parameters --------------------------------------------
 
-# Flag for fitting models 
-
+# Flag for fitting models. Can be set to F once models weights are saved   
 fit_models <- T
 
-#NN layers/neurons 
 nn.nunits <- c(32,32,32)
 
-#GPD quantile level 
 quant.level <- 0.85
 
-#Set initial shape parameter
 init_shape <- 0.1
 
-#Vector of decreasing learning rates
 l.r.vec <- c(0.001, 5e-04, 0.00025, 1e-04, 5e-05)  
 
-#Link function for shape parameter
-gpd.shape.custom_activation <- function(x) { #Bound to [-.5,.5]
+gpd.shape.custom_activation <- function(x) {
   tf$atan(x)/pi
 }
 
-init_bias <- tan(pi*(init_shape)) #Compute initial biases (to ensure valid starting parameters)
+init_bias <- tan(pi*(init_shape)) 
 
-#NN activation function 
 activation.func <- "relu"
 
+# Set number of observations per year (noting we have weekly maxima)
 n_y <- 52 #(varies slightly depending on year)
 
 # Packages and VE ---------------------------------------------------------
 
-# Load some useful functions and packages
 source("preamble.R")
 
-# Load tensorflow/Keras and Virtual Environment 
 reticulate::use_virtualenv("DeepSPAR_env", required = T)
 packages = c("keras", "tensorflow","reticulate")
 package.check <- lapply(packages, FUN = function(x) {
@@ -52,17 +44,17 @@ package.check <- lapply(packages, FUN = function(x) {
   }
 })
 
-# Set tensorflow seed
 tensorflow::set_random_seed(1)
 
 # Data --------------------------------------------------------------------
 
-# Locations of stations 
+# Names of measurement stations 
 river_names <- c("ammer","iller","lech","loisach")
 
-#Split into four 30 year windows
+# Split into four 30 year windows
 time_periods <- list(1980:2009,2010:2039,2040:2069,2070:2099)
 
+# Loading data and values associated with pre-processing 
 std_sigmas <- readRDS(file = "../data/preprocessed_data/std_sigmas.rds")
 
 std_mus <- readRDS(file = "../data/preprocessed_data/std_mus.rds")
@@ -71,32 +63,21 @@ std_tw_dfs <- readRDS(file = "../data/preprocessed_data/std_tw_dfs.rds")
 
 os_tw_dfs <- readRDS(file = "../data/preprocessed_data/os_tw_dfs.rds")
 
-l1_seq_upper <- 1000
-
-l1_seq_lower <- 30
-
-prob_RPs <- c(10)
-
-# Fitting across all pairs ------------------------------------------------
-
 print(paste("Fitting model for time window ", tw_ind))
 
-# Extract normalised data
+# Estimating threshold function ------------------------------------------------
+
 X.norm = std_tw_dfs[[tw_ind]]
 
 n = dim(X.norm)[1]
 d = dim(X.norm)[2]
 
-# Create AR decomp 
 R <- apply(X.norm,1,l2_norm)
 W = X.norm/R
 W = as.matrix(W)
 
-# Make 20% validation data
 set.seed(1)
 valid.inds = sample(1:n, round(n/10))
-
-# Build quantile regression model
 
 R.train <- R[-valid.inds]
 W.train <- W[-valid.inds,]
@@ -127,12 +108,10 @@ qBranch <- qBranch %>%
               name = "q_final", 
               kernel_regularizer = regularizer_l1_l2(l1 = 1e-04,l2 = 1e-04))  
 
-# Construct Keras model
 quant.model <- keras_model(inputs = c(input_pseudo_angles), 
                            outputs = c(qBranch))
 
 
-# Compile the model with the tilted loss and the adam optimiser
 quant.model %>%
   compile(optimizer = "adam", 
           loss = tilted_loss, 
@@ -162,10 +141,8 @@ if(fit_models){
         callback = list(checkpoint,callback_early_stopping(monitor = "val_loss", min_delta = 0, patience = 5)), 
         validation_data = list(list(input_pseudo_angles = W.valid),R.valid))
   
-  # Load the best fitting model from the checkpoint save
   quant.model <- load_model_weights_tf(quant.model, filepath = checkpoint_path)
   
-  # Then save the best model.
   save_model_tf(quant.model, paste0("../nn_parameters/QR_est/qr_fit_tw_",tw_ind))
   
   unlink(checkpoint_dir, recursive = TRUE)
@@ -176,10 +153,13 @@ quant.model <- tf$saved_model$load(paste0("../nn_parameters/QR_est/qr_fit_tw_",t
 
 pred.quant <- k_get_value(quant.model(k_constant(W)))
 
-# Compute threshold exceedances 
+print(mean(pred.quant > R))
+print(quant.level)
+
+# Estimating GPD parameter functions  -------------------------------------
+
 u <- pred.quant
 
-# Create training and validation data
 R.train <- (R - u)[-valid.inds]
 W.train <- W[-valid.inds, ]
 u.train <- u[-valid.inds]
@@ -249,7 +229,6 @@ shape.Branch <- gpd.Branch %>%
 
 output <- layer_concatenate(c(scale.Branch, shape.Branch, input_u, input_pseudo_angles))
 
-# Construct Keras model
 GPD.model <- keras_model(inputs = c(input_pseudo_angles, input_u), outputs = output)
 summary(GPD.model)
 
@@ -293,13 +272,10 @@ if(fit_models){
   save_model_tf(GPD.model, 
                 paste0("../nn_parameters/GPD_est/gpd_fit_tw_",tw_ind))
   
-  # Load best validation loss value 
   best.valid.loss <- history$metrics$val_loss[which.min(history$metrics$val_loss)-1]
   
-  # Adjust number of epochs for further optimisation 
   n.epochs <- 200
   
-  # Decreasing learning rate training scheme
   for (k in 2:length(l.r.vec)) {
     
     print(paste0("Decreasing learning rate size to: ", l.r.vec[k]))
@@ -316,7 +292,6 @@ if(fit_models){
           callback = list(checkpoint,callback_early_stopping(monitor = "val_loss", min_delta = 0, patience = 10)),
           validation_data = list(list(input_pseudo_angles = W.valid,input_u = u.valid), R.valid))
     
-    # Check to see if validation loss has decreased
     if (length(which.min(history$metrics$val_loss)) > 0) {
       
       if (min(history$metrics$val_loss, na.rm = T) > best.valid.loss) {
@@ -365,9 +340,10 @@ if(fit_models){
 GPD.model<- load_model_tf(filepath = paste0("../nn_parameters/GPD_est/gpd_fit_tw_",tw_ind),
                           custom_objects = list(GPD_loss=GPD_loss))
 
-#Validation 
+# Computing diagnostic quantities  ----------------------------------------
 
-#Evaluating model fit on thresh exc
+# Compute quantities for GPD QQ plot 
+
 pred.GPD.exc <- k_get_value(GPD.model(list(k_constant(W[R-u>0,]), k_constant(matrix(u[R-u>0],ncol=1)))))
 
 obs_quants = qexp(apply(cbind(u[R-u>0], pred.GPD.exc[,1:2], R[R-u>0]), 1, function(x) pgpd(x[4], loc = x[1], scale = x[2]/(1 +x[3]), x[3])))
@@ -378,7 +354,9 @@ theor_quants = qexp(ps)
 
 saveRDS(ps,file = paste0("../computed_model_vals/gpd_qq_prob_tw_",tw_ind,".rds"))
 
-saveRDS(sort(obs_quants),file = paste0("../computed_model_vals/gpd_qq_quants__tw_",tw_ind,".rds"))
+saveRDS(sort(obs_quants),file = paste0("../computed_model_vals/gpd_qq_quants_tw_",tw_ind,".rds"))
+
+# Simulate lots of data from fitted SPAR model 
 
 n.sim.tail = 2e6
 
@@ -416,6 +394,8 @@ mus = std_mus[[tw_ind]]
 
 sigmas = std_sigmas[[tw_ind]]
 
+# Compute observations and simulations in the joint tail on the original scale 
+
 X.excess.obs.os = apply(rbind(mus,X.norm.excess),2,function(x){return( x[-1] + x[1] )})
 
 X.excess.obs.os = apply(X.excess.obs.os,2,function(x){return( log(1 + exp(x)) )})
@@ -428,13 +408,9 @@ X.excess.sim.os = apply(X.excess.sim.os,2,function(x){return( log(1 + exp(x)) )}
 
 X.excess.sim.os = apply(rbind(sigmas,X.excess.sim.os),2,function(x){return( x[-1]*x[1] )})
 
-labels <- river_names
+# Compute values associated with chi plots, scatterplots and marginal QQ plots 
 
-tail_dep <- function(u,x, y) {
-  qx <- quantile(x, u, na.rm = TRUE)
-  qy <- quantile(y, u, na.rm = TRUE)
-  mean(x > qx & y > qy, na.rm = TRUE) / (1 - u)
-}
+labels <- river_names
 
 u_vec = seq(0.8,0.99,by = 0.01)
 
@@ -466,7 +442,7 @@ for (j in 1:p) {
       
       saveRDS(cbind(xs[1:10000], ys[1:10000]),file = paste0("../computed_model_vals/scatterplot_",labels[i],"_",labels[j],"_tw_",tw_ind,".rds"))
       
-      saveRDS(cbind(xo, yo),file = paste0("../computed_model_vals/scatterplot_observed_",labels[i],"_",labels[j],"_tw_",tw_ind,".rds"))
+      saveRDS(cbind(xo, yo),file = paste0("../computed_model_vals/scatterplot_obs_",labels[i],"_",labels[j],"_tw_",tw_ind,".rds"))
 
     } else {
       # ---------------- Lower diagonal: chi dependence coefficient on scale ----------------
@@ -483,6 +459,8 @@ for (j in 1:p) {
     }
   }
 }
+
+# Compute return levels in upper and lower tails 
 
 for(i in 1:d){
 
@@ -544,6 +522,20 @@ for(i in 1:d){
   
 }
 
+# Estimating tail probabilities from SPAR model   -------------------------
+
+# Thresholds for S variable (agregated discharge)
+
+l1_seq_upper <- 1000
+
+l1_seq_lower <- 30
+
+# Return period for joint cdf/survivor probabilities
+
+prob_RPs <- 10
+
+# Computing 10 year return levels in upper and lower tails 
+
 est_RLs_upper = matrix(NA,ncol=d,nrow=length(prob_RPs))
 
 est_RLs_lower = matrix(NA,ncol=d,nrow=length(prob_RPs))
@@ -564,11 +556,15 @@ for(i in 1:d){
   
 }
 
+# Transforming all data simulated from joint body + tail onto the observation scale 
+
 X.sim = apply(rbind(mus,X.sim),2,function(x){return( x[-1] + x[1] )})
 
 X.sim = apply(X.sim,2,function(x){return( log(1 + exp(x)) )})
 
 X.sim = apply(rbind(sigmas,X.sim),2,function(x){return( x[-1]*x[1] )})
+
+# Estimating probabilities using MCMC
 
 l1_upper_ests = sapply(l1_seq_upper,function(l1_q){
 
@@ -593,6 +589,8 @@ lower_cdf_ests = apply(est_RLs_lower,1,function(ret_levels){
   return(cdf_prob(u_vec=ret_levels,sim_data=X.sim))
 
 })
+
+# Saving probabilities 
 
 probs_list = list(l1_seq_upper = l1_seq_upper, l1_seq_lower = l1_seq_lower, est_RLs_upper=est_RLs_upper, est_RLs_lower=est_RLs_lower, l1_upper_ests=l1_upper_ests, l1_lower_ests=l1_lower_ests, upper_surv_ests=upper_surv_ests, lower_cdf_ests=lower_cdf_ests)
 
