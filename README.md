@@ -35,7 +35,7 @@ This requires one to install several packages in R, then create a virtual enviro
 
 **scripts/virtual_env_script.R**
 
-Open this script in RStudio and follow the instructions. Please run through this script prior to attempting to run any of the other scripts. If you encounter any errors, we recommend using an LLM to debug, since minor changes are sometimes required for different operating systems. A Conda environment can also be used in place of a virtual environment, by replacing the relevant `reticulate` code.
+Open this script in RStudio and follow the instructions. Please run through this script prior to attempting to run any of the other scripts. If you encounter any errors, we recommend using an LLM to debug, since minor changes are sometimes required for different operating systems. A Conda environment can also be used in place of a virtual environment, by replacing the relevant `reticulate` code; see, for example, [Jbrich95/USWildfireExtremes](https://github.com/Jbrich95/USWildfireExtremes).
 
 After setting up the virtual envrionment, please restart R and RStudio. 
 
