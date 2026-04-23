@@ -357,7 +357,7 @@ display: none;
 <p><strong>This repository provides the R code accompanying the
 methodology presented in Murphy-Barltrop et al. (2026). Note this
 repository adapts and develops the code accompanying Mackay et
-al. (2025) for fitting the SPAR model (Mackay and Jonathan (2023)) using
+al. (2025) for fitting the SPAR model (Mackay and Jonathan, 2023) using
 deep learning techniques.</strong></p>
 <p>In this work, we apply the recently proposed ‘Deep SPAR’ framework to
 model concurrent river floods and droughts in four catchments in the
@@ -390,20 +390,22 @@ working with R much easier. Go to the Posit download page (<a href="https://posi
 free RStudio Desktop version for your operating system, and run the
 installer.</p>
 </div>
-<div id="set-up-a-python-virtual-machine-in-r-in-order-to-run-keras-tensorflow" class="section level3">
-<h3>1. Set up a Python Virtual Machine in R in order to run Keras +
-Tensorflow</h3>
+<div id="set-up-a-virtual-envrionment-via-r-in-order-to-run-python-with-keras-tensorflow" class="section level3">
+<h3>1. Set up a Virtual Envrionment via R in order to run Python with
+Keras + Tensorflow</h3>
 <p>This requires one to install several packages in R, then create a
-virtual machine and install the relevant software on said machine. All
-of the instructions for performing this step are containing in the
-following script:</p>
+virtual environment and install the relevant software. All of the
+instructions for performing this step are containing in the following
+script:</p>
 <p><strong>scripts/virtual_env_script.R</strong></p>
 <p>Open this script in RStudio and follow the instructions. Please run
 through this script prior to attempting to run any of the other scripts.
 If you encounter any errors, we recommend using an LLM to debug, since
-minor changes are sometimes required for different operating
-systems.</p>
-<p>After setting up the virtual machine, please restart R and
+minor changes are sometimes required for different operating systems. A
+Conda environment can also be used in place of a virtual environment, by
+replacing the relevant <code>reticulate</code> code; see, for example,
+<a href="https://github.com/Jbrich95/USWildfireExtremes">Jbrich95/USWildfireExtremes</a>.</p>
+<p>After setting up the virtual envrionment, please restart R and
 RStudio.</p>
 </div>
 <div id="pre-processing" class="section level3">

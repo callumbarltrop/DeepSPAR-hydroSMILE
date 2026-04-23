@@ -2,7 +2,7 @@
 
 rm(list=ls())
 
-# It is highly recommended to run this on a SLURM submission system. Set the array ids on the system to run from 1 - 4000
+# It is highly recommended to run this on a SLURM submission system. Set the array ids on the system to run from 1 - 400
 
 array_id=commandArgs(trailingOnly=T) #Assuming job array submission with slurm
 array_id=as.numeric(array_id)

@@ -29,19 +29,19 @@ Go to the CRAN website (https://cran.r-project.org/) and follow the instructions
 RStudio is an IDE (Integrated Development Environment) that makes working with R much easier.
 Go to the Posit download page (https://posit.co/download/rstudio-desktop), download the free RStudio Desktop version for your operating system, and run the installer.
 
-### 1. Set up a Virtual Envrionment via R in order to run Python with Keras + Tensorflow
+### 1. Set up a Virtual Environment via R in order to run Python with Keras + Tensorflow
 
-This requires one to install several packages in R, then create a virtual environment and install the relevant software. All of the instructions for performing this step are containing in the following script:
+This requires one to install several packages in R, then create a virtual environment and install the relevant software. All of the instructions for performing this step are contained in the following script:
 
 **scripts/virtual_env_script.R**
 
 Open this script in RStudio and follow the instructions. Please run through this script prior to attempting to run any of the other scripts. If you encounter any errors, we recommend using an LLM to debug, since minor changes are sometimes required for different operating systems. A Conda environment can also be used in place of a virtual environment, by replacing the relevant `reticulate` code; see, for example, [Jbrich95/USWildfireExtremes](https://github.com/Jbrich95/USWildfireExtremes).
 
-After setting up the virtual envrionment, please restart R and RStudio. 
+After setting up the virtual environment, please restart R and RStudio. 
 
 ### 2. Pre-processing 
 
-Next, we will pre-process the weekly maxima series to transform them from $\mathbb{R}_+$ to $\mathbb{R}$, and to center the data cloud at $(0,0,0,0)$. The raw weekly maxima series are stored in _data/weekly_maxima/_. All data prodcued by the pre-processing are saved in the folder _data/preprocessed_data/_. The following script carries out the pre-processing:
+Next, we will pre-process the weekly maxima series to transform them from $\mathbb{R}_+$ to $\mathbb{R}$, and to center the data cloud at $(0,0,0,0)$. The raw weekly maxima series are stored in _data/weekly_maxima/_. All data produced by the pre-processing are saved in the folder _data/preprocessed_data/_. The following script carries out the pre-processing:
 
 **scripts/preprocessing.R**
 
@@ -61,7 +61,7 @@ All figures generated from this script are again saved in the _figures/_ folder.
 
 Note that this script provides a basis for understanding the subsequent scripts. As such, the subsequent scripts contain far fewer comments regarding the deep learning model construction. Therefore, please refer to the _scripts/paper_figures.R_ script if anything in the subsequent scripts doesn't make sense. 
 
-### 4. For the deep SPAR model to the discharge data. 
+### 4. Fit the deep SPAR model to the discharge data. 
 
 The final step fits our framework to the discharge data simulated via hydroSMILE across every time period. Uncertainty is quantified via bootstrapping. Figures with uncertainty bounds are compiled once all model fitting has been completed. Please run through the next three scripts in the following order:
 
@@ -79,9 +79,7 @@ And that's it - you're done. You should now have figures illustrating diagnostic
 
 Below, we provide brief descriptions of each folder.
 
-**Folders:**
-
-* **computed_model_vals/** - folder where values computed using the fitting deep SPAR models (i.e., diagnostics and probabilities) are stored
+* **computed_model_vals/** - folder where values computed using the fitted deep SPAR models (i.e., diagnostics and probabilities) are stored
 * **data/** - folder containing the discharge datasets (original and pre-processed) 
 * **figures/** - folder for storing figures 
 * **nn_parameters/** - folder for storing neural network model weights
@@ -97,7 +95,7 @@ Please get in touch if you have any questions, or if you find a bug in the code:
 
 Murphy-Barltrop, C. J. R., Richards, J., Poschlod, B., Sasse, A., and Zscheischler, J. (2026). Exploring climate change effects on concurrent floods and concurrent droughts via statistical deep learning. arXiv preprint. 
 
-Mackay, E., & Jonathan, P. (2023). Modelling multivariate extremes through angular-radial decomposition of the density function. arXiv:2310.12711.
+Mackay, E., and Jonathan, P. (2023). Modelling multivariate extremes through angular-radial decomposition of the density function. arXiv:2310.12711.
 
 Mackay, E., Murphy-Barltrop, C. J. R., Richards, J., and Jonathan, P. (2025). Deep Learning Joint Extremes of Metocean Variables Using the SPAR Model. ASME. J. Offshore Mech. Arct. Eng.; 148(2): 021201.
 
