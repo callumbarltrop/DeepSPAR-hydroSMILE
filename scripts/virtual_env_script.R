@@ -1,10 +1,10 @@
 # Clear the environment in R
 
-rm(list=ls())
+rm(list = ls())
 
-# Load in/install all of the required packages 
+# Load in/install all of the required packages
 
-packages = c("keras","tensorflow","reticulate")
+packages = c("keras", "tensorflow", "reticulate")
 package.check <- lapply(
   packages,
   FUN = function(x) {
@@ -15,12 +15,12 @@ package.check <- lapply(
   }
 )
 
-# Install python version 3.10.11. Make sure Git is installed prior to running the commands below. 
+# Install python version 3.10.11. Make sure Git is installed prior to running the commands below.
 
 # For windows
 
 py_version <- "3.10.11"
-path_to_python <- reticulate::install_python(version=py_version)
+path_to_python <- reticulate::install_python(version = py_version)
 
 # For linux (uncomment the lines below, change your username)
 
@@ -32,9 +32,9 @@ path_to_python <- reticulate::install_python(version=py_version)
 #   target = install_dir # <-- This is the key argument
 # )
 
-.rs.restartR() # Restart R 
+.rs.restartR() # Restart R
 
-# Re-load in packages 
+# Re-load in packages
 
 package.check <- lapply(
   packages,
@@ -46,19 +46,19 @@ package.check <- lapply(
   }
 )
 
-# Install virtual environment 
+# Install virtual environment
 
 reticulate::virtualenv_create(envname = 'DeepSPAR_env',
-                              python=path_to_python,
-                              version=py_version)
+                              python = path_to_python,
+                              version = py_version)
 
-# Check we can use virtual environment 
+# Check we can use virtual environment
 
 reticulate::use_virtualenv("DeepSPAR_env", required = T)
 
-.rs.restartR() # Restart R 
+.rs.restartR() # Restart R
 
-# Re-load in packages 
+# Re-load in packages
 
 package.check <- lapply(
   packages,
@@ -70,19 +70,19 @@ package.check <- lapply(
   }
 )
 
-# Load virtual environment 
+# Load virtual environment
 
 reticulate::use_virtualenv("DeepSPAR_env", required = T)
 
-# Install tensorflow v2.11.0 into virtual environment 
+# Install tensorflow v2.11.0 into virtual environment
 
-tf_version="2.11.0" 
-tensorflow::install_tensorflow(method="virtualenv", envname="DeepSPAR_env",
-                               version=tf_version) 
+tf_version = "2.11.0"
+tensorflow::install_tensorflow(method = "virtualenv",
+                               envname = "DeepSPAR_env",
+                               version = tf_version)
 
-.rs.restartR() # Restart R 
 
-# Re-load in packages 
+# Re-load in packages
 
 package.check <- lapply(
   packages,
@@ -94,21 +94,28 @@ package.check <- lapply(
   }
 )
 
-# Load virtual environment 
+# Load virtual environment
 
 reticulate::use_virtualenv("DeepSPAR_env", required = T)
 
-# Install keras into virtual environment 
+# Install keras into virtual environment
 
-keras::install_keras(method = c("virtualenv"), envname = "DeepSPAR_env",version=tf_version) #Install keras
+keras::install_keras(
+  method = c("virtualenv"),
+  envname = "DeepSPAR_env",
+  version = tf_version
+) #Install keras
 
-# Install numpy into virtual environment 
+# Install numpy into virtual environment
 
-reticulate::py_install("numpy==1.26.4", envname = "DeepSPAR_env", method = "virtualenv", pip = TRUE)
+reticulate::py_install("numpy==1.26.4",
+                       envname = "DeepSPAR_env",
+                       method = "virtualenv",
+                       pip = TRUE)
 
-.rs.restartR() # Restart R 
+.rs.restartR() # Restart R
 
-# Re-load in packages 
+# Re-load in packages
 
 package.check <- lapply(
   packages,
@@ -120,11 +127,11 @@ package.check <- lapply(
   }
 )
 
-# Load virtual environment 
+# Load virtual environment
 
 reticulate::use_virtualenv("DeepSPAR_env", required = T)
 
 # Check if Keras is available and working in the created virtual environment
-# If you get an error here, or anywhere else in the script, us an LLM to debug with the errors you receive
+# If you get an error here, or anywhere else in the script, use an LLM to debug with the errors you receive
 
 keras::is_keras_available() # Should print 'TRUE'
