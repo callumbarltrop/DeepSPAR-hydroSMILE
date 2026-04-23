@@ -439,7 +439,7 @@ polygon(c(rev(1:4), 1:4), c(rev(1/(n_y*l1_lower_2.5[1,])), 1/(n_y*l1_lower_97.5[
 lines(1:4,1/(n_y*l1_lower_ests[1,]), lwd=3, col = "grey3")
 
 points(1:4,1/(n_y*l1_lower_ests[1,]),
-       pch=16,col="grey3",,cex=1.6)
+       pch=16,col="grey3",cex=1.6)
 
 axis(1, at = 1:4,cex.axis=1.6, labels = c(paste0(min(time_periods[[1]]),"-",max(time_periods[[1]])), paste0(min(time_periods[[2]]),"-",max(time_periods[[2]])), paste0(min(time_periods[[3]]),"-",max(time_periods[[3]])), paste0(min(time_periods[[4]]),"-",max(time_periods[[4]]))))
 

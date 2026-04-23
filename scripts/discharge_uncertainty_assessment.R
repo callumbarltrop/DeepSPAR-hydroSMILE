@@ -417,12 +417,6 @@ X.excess.sim.os = apply(rbind(sigmas,X.excess.sim.os),2,function(x){return( x[-1
 
 labels <- river_names
 
-tail_dep <- function(u,x, y) {
-  qx <- quantile(x, u, na.rm = TRUE)
-  qy <- quantile(y, u, na.rm = TRUE)
-  mean(x > qx & y > qy, na.rm = TRUE) / (1 - u)
-}
-
 u_vec = seq(0.8,0.99,by = 0.01)
 
 p <- ncol(X.excess.sim.os)
