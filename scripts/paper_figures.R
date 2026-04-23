@@ -666,7 +666,7 @@ X.spar.sim <- rbind(X.body.resam, X.tail.sim)
 
 # Remove any objects we no longer need to save memory
 
-rm(u.sim, pred.GPD.sim, unif_sample, R.sim, W.sim, X.body, W.excess)
+rm(u.sim, pred.GPD.sim, unif_sample, R.sim, W.sim, W.excess)
 
 # Vector of threshold for evaluating chi
 
