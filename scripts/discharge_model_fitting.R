@@ -436,6 +436,9 @@ n_p = length(u[R - u > 0])
 ps = (1:n_p) / (n_p + 1)
 theor_quants = qexp(ps)
 
+
+st <- "../computed_model_vals/"
+dir.create(st)
 saveRDS(ps,
         file = paste0("../computed_model_vals/gpd_qq_prob_tw_", tw_ind, ".rds"))
 
