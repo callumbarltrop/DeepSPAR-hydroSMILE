@@ -93,7 +93,7 @@ Please get in touch if you have any questions, or if you find a bug in the code:
 
 ### References
 
-Murphy-Barltrop, C. J. R., Richards, J., Poschlod, B., Sasse, A., and Zscheischler, J. (2026). Exploring climate change effects on concurrent floods and concurrent droughts via statistical deep learning. arXiv preprint. 
+Murphy-Barltrop, C. J. R., Richards, J., Poschlod, B., Sasse, A., and Zscheischler, J. (2026). Exploring climate change effects on concurrent floods and concurrent droughts via statistical deep learning. arXiv:2604.21647. 
 
 Mackay, E., and Jonathan, P. (2023). Modelling multivariate extremes through angular-radial decomposition of the density function. arXiv:2310.12711.
 
