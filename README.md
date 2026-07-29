@@ -66,7 +66,9 @@ Note that this script provides a basis for understanding the subsequent scripts.
 The final step fits our framework to the discharge data simulated via hydroSMILE across every time period. Uncertainty is quantified via bootstrapping. Figures with uncertainty bounds are compiled once all model fitting has been completed. Please run through the next three scripts in the following order:
 
 a) **scripts/discharge_model_fitting.R**
+
 b) **scripts/discharge_uncertainty_assessment.R**
+
 c) **scripts/discharge_diagnostics_and_probabilities.R**
 
 Step a) first fits the model to the four discharge datasets representing each time period. Step b) quantifies the uncertainty across each model fit via bootstrapping. Diagnostic and probability values computed from steps a) and b) are stored in the _computed_model_vals/_ folder, while neural network model weights are saved in the _nn_parameters/_ folder. Finally, step c) produces plots illustrating diagnostics and probability estimates computed from the model fits. As before, all figures generated from this script are saved in the _figures/_ folder.
