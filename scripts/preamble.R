@@ -101,3 +101,52 @@ l2_norm = function(x){
   return(sqrt(sum(x^2)))
 }
 
+block_bootstrap_function_ensemble = function(data, k, ens_vec, n = nrow(as.matrix(data))) {
+  
+  data = as.matrix(data)
+  
+  # Validate inputs
+  if (length(ens_vec) != nrow(data)) {
+    stop("ens_vec length must equal number of data rows")
+  }
+  
+  if (k > nrow(data)) {
+    stop("Block size k cannot exceed data size")
+  }
+  
+  # Number of blocks needed
+  no_blocks = ceiling(n / k)
+  
+  # Get unique ensemble members
+  unique_ens = unique(ens_vec)
+  
+  # Build bootstrapped dataset by sampling blocks
+  new_data = do.call(rbind, 
+                     lapply(1:no_blocks, function(i) {
+                       
+                       # Step 1: Randomly select an ensemble member
+                       selected_ens = sample(unique_ens, size = 1)
+                       
+                       # Step 2: Filter data by that ensemble member
+                       ens_mask = (ens_vec == selected_ens)
+                       filtered_data = data[ens_mask, , drop = FALSE]
+                       n_filtered = nrow(filtered_data)
+                       
+                       # Ensure block size doesn't exceed filtered subset
+                       if (k > n_filtered) {
+                         stop(paste("Block size k =", k, "exceeds filtered data size (", n_filtered, 
+                                    ") for ensemble member:", selected_ens))
+                       }
+                       
+                       # Step 3: Sample a block of size k from filtered subset
+                       start_indices = 1:(n_filtered - k + 1)
+                       start = sample(start_indices, size = 1)
+                       block = filtered_data[start:(start + k - 1), , drop = FALSE]
+                       
+                       return(block)
+                     })
+  )
+  
+  # Return exactly n rows
+  return(new_data[1:n, , drop = FALSE])
+}

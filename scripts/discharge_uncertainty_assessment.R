@@ -88,9 +88,9 @@ tw_ind = indices_grid$Var2[array_id]
 
 X.norm = std_tw_dfs[[tw_ind]]
 
-# Resample rows in pre-processed data randomly
+# Resample rows in pre-processed data in blocks of 4, relative to each ensemble member
 set.seed(boot_ind + 1)
-X.norm = X.norm[sample(1:nrow(X.norm), nrow(X.norm), replace = T), ]
+X.norm = block_bootstrap_function_ensemble(data=X.norm,k=4,ens_vec = os_tw_dfs[[time_window_ind]]$ens_mem)
 
 n = dim(X.norm)[1]
 d = dim(X.norm)[2]
@@ -667,52 +667,18 @@ for (i in 1:d) {
   
 }
 
-for (i in 1:d) {
-  title = river_names[i]
-  
-  fix_RPs = exp(seq(log(10), log(10000), length.out = 3000))
-  
-  fix_probs = 1 / (fix_RPs * n_y)
-  
-  model_RLs = quantile(X.sim[, i], fix_probs)
-  
-  model_RLs = log(1 + exp(model_RLs + mus[i])) * sigmas[i]
-  
-  saveRDS(
-    model_RLs,
-    file = paste0(
-      "../computed_model_vals/rl_ests_lower_",
-      title,
-      "_bootind_",
-      boot_ind,
-      "_tw_",
-      tw_ind,
-      ".rds"
-    )
-  )
-  
-}
-
 # Estimating tail probabilities from SPAR model ----------------------------------------------------------------------
 
-l1_seq_upper = 1000
-
-l1_seq_lower = 30
+l1_seq_upper = 1500
 
 prob_RPs = c(10)
 
 est_RLs_upper = matrix(NA, ncol = d, nrow = length(prob_RPs))
 
-est_RLs_lower = matrix(NA, ncol = d, nrow = length(prob_RPs))
-
 for (i in 1:d) {
   est_RLs_upper[, i] = quantile(X.norm[, i], 1 - (1 / (n_y * prob_RPs)))
   
   est_RLs_upper[, i] = log(1 + exp(est_RLs_upper[, i] + mus[i])) * sigmas[i]
-  
-  est_RLs_lower[, i] = quantile(X.norm[, i], (1 / (n_y * prob_RPs)))
-  
-  est_RLs_lower[, i] = log(1 + exp(est_RLs_lower[, i] + mus[i])) * sigmas[i]
   
 }
 
@@ -733,30 +699,16 @@ l1_upper_ests = sapply(l1_seq_upper, function(l1_q) {
   
 })
 
-l1_lower_ests = sapply(l1_seq_lower, function(l1_q) {
-  return(l1_prob_lower(u = l1_q, sim_data = X.sim))
-  
-})
-
 upper_surv_ests = apply(est_RLs_upper, 1, function(ret_levels) {
   return(survivor_prob(u_vec = ret_levels, sim_data = X.sim))
   
 })
 
-lower_cdf_ests = apply(est_RLs_lower, 1, function(ret_levels) {
-  return(cdf_prob(u_vec = ret_levels, sim_data = X.sim))
-  
-})
-
 probs_list = list(
   l1_seq_upper = l1_seq_upper,
-  l1_seq_lower = l1_seq_lower,
   est_RLs_upper = est_RLs_upper,
-  est_RLs_lower = est_RLs_lower,
   l1_upper_ests = l1_upper_ests,
-  l1_lower_ests = l1_lower_ests,
-  upper_surv_ests = upper_surv_ests,
-  lower_cdf_ests = lower_cdf_ests
+  upper_surv_ests = upper_surv_ests
 )
 
 saveRDS(

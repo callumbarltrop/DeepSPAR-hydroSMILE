@@ -13,7 +13,7 @@ In this work, we apply the recently proposed 'Deep SPAR' framework to model conc
 
 ## Instructions for running the code
 
-The code below can be used to recreate figures from the main article. It can be easily adapted for other datasets and does not require expert AI knowledge to implement. Please follow these steps chronologically. 
+The code below can be used to recreate some of the figures from the main article. It can be easily adapted for other datasets and does not require expert knowledge of AI or EVT to implement. Please follow these steps chronologically. 
 
 ### 0. Installing R and RStudio. 
 
@@ -63,7 +63,7 @@ Note that this script provides a basis for understanding the subsequent scripts.
 
 ### 4. Fit the deep SPAR model to the discharge data. 
 
-The final step fits our framework to the discharge data simulated via hydroSMILE across every time period. Uncertainty is quantified via bootstrapping. Figures with uncertainty bounds are compiled once all model fitting has been completed. Please run through the next three scripts in the following order:
+The final step fits our framework to the weekly maxima discharge data simulated via hydroSMILE across every time period. Uncertainty is quantified via block bootstrapping. Figures with uncertainty bounds are compiled once all model fitting has been completed. Please run through the next three scripts in the following order:
 
 a) **scripts/discharge_model_fitting.R**
 
@@ -71,7 +71,7 @@ b) **scripts/discharge_uncertainty_assessment.R**
 
 c) **scripts/discharge_diagnostics_and_probabilities.R**
 
-Step a) first fits the model to the four discharge datasets representing each time period. Step b) quantifies the uncertainty across each model fit via bootstrapping. Diagnostic and probability values computed from steps a) and b) are stored in the _computed_model_vals/_ folder, while neural network model weights are saved in the _nn_parameters/_ folder. Finally, step c) produces plots illustrating diagnostics and probability estimates computed from the model fits. As before, all figures generated from this script are saved in the _figures/_ folder.
+Step a) first fits the model to the four weekly maxima discharge datasets representing each time period. Step b) quantifies the uncertainty across each model fit via bootstrapping. Diagnostic and probability values computed from steps a) and b) are stored in the _computed_model_vals/_ folder, while neural network model weights are saved in the _nn_parameters/_ folder. Finally, step c) produces plots illustrating diagnostics and probability estimates computed from the model fits. As before, all figures generated from this script are saved in the _figures/_ folder.
 
 Note step b) ideally needs to be run on a HPC. However, this is not because of the high computational resources required, but rather the fact it is much quicker when run in parallel, e.g., without a for loop over the bootstrap indices.
 
@@ -89,13 +89,13 @@ Below, we provide brief descriptions of each folder.
 
 ## Questions?
 
-Please get in touch if you have any questions, or if you find a bug in the code: callum.murphy-barltrop [at] tu-dresden.de 
+Please get in touch if you have any questions, or if you find a bug in the code: callum [at] openevt.org 
 
 ### **Happy SPAR-ring!**
 
 ### References
 
-Murphy-Barltrop, C. J. R., Richards, J., Poschlod, B., Sasse, A., and Zscheischler, J. (2026). Exploring climate change effects on concurrent floods and concurrent droughts via statistical deep learning. arXiv:2604.21647. 
+Murphy-Barltrop, C. J. R., Richards, J., Poschlod, B., Sasse, A., & Zscheischler, J. (2026). Exploring climate change effects on concurrent floods and concurrent droughts via statistical deep learning. Water Resources Research, 62, e2026WR044519. https://doi.org/10.1029/2026WR044519
 
 Mackay, E., and Jonathan, P. (2023). Modelling multivariate extremes through angular-radial decomposition of the density function. arXiv:2310.12711.
 

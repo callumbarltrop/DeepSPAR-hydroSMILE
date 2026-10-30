@@ -638,169 +638,11 @@ for (tw_ind in 1:4) {
   
   dev.off()
   
-  png(
-    filename = paste0("../figures/rl_plot_lower_tw_", tw_ind, ".png"),
-    width = 2800,
-    height = 2800,
-    res = 400
-  )
-  
-  par(mar = c(4, 4.5, 4, 2))
-  
-  par(mgp = c(2.8, 0.7, 0))
-  
-  par(mfrow = c(2, 2))
-  
-  for (i in 1:d) {
-    title = river_names[i]
-    
-    fix_RPs = exp(seq(log(10), log(10000), length.out = 3000))
-    
-    emp_RLs = readRDS(
-      file = paste0(
-        "../computed_model_vals/rl_ests_lower_obs_",
-        title,
-        "_tw_",
-        tw_ind,
-        ".rds"
-      )
-    )
-    
-    emp_RPs = readRDS(
-      file = paste0(
-        "../computed_model_vals/rp_ests_lower_obs_",
-        title,
-        "_tw_",
-        tw_ind,
-        ".rds"
-      )
-    )
-    
-    model_RLs = readRDS(file = paste0(
-      "../computed_model_vals/rl_ests_lower_",
-      title,
-      "_tw_",
-      tw_ind,
-      ".rds"
-    ))
-    
-    boot_rl_mat = sapply(1:n_boot, function(boot_ind) {
-      if (file.exists(
-        paste0(
-          "../computed_model_vals/rl_ests_lower_",
-          title,
-          "_bootind_",
-          boot_ind,
-          "_tw_",
-          tw_ind,
-          ".rds"
-        )
-      )) {
-        return(readRDS(
-          file = paste0(
-            "../computed_model_vals/rl_ests_lower_",
-            title,
-            "_bootind_",
-            boot_ind,
-            "_tw_",
-            tw_ind,
-            ".rds"
-          )
-        ))
-      } else {
-        print(boot_ind)
-        print(tw_ind)
-        return(rep(NA, length(fix_RPs)))
-      }
-    })
-    
-    plot(
-      fix_RPs,
-      model_RLs,
-      log = "x",
-      type = "l",
-      lwd = 3,
-      col = "grey",
-      xlab = "Return period (years)",
-      ylab = expression("Discharge (m"^3 * "/s)"),
-      xaxt = "n",
-      cex.lab = 1.3,
-      cex.main = 1.5,
-      ylim = range(
-        emp_RLs,
-        model_RLs,
-        apply(
-          boot_rl_mat,
-          1,
-          quantile,
-          probs = c(0.025, 0.975),
-          na.rm = T
-        )
-      ),
-      main = paste0(toupper(substring(title, 1, 1)), substring(title, 2), " lower tail")
-    )
-    
-    polygon(c(rev(fix_RPs), fix_RPs),
-            c(
-              rev(apply(
-                boot_rl_mat,
-                1,
-                quantile,
-                probs = 0.025,
-                na.rm = T
-              )),
-              apply(
-                boot_rl_mat,
-                1,
-                quantile,
-                probs = 0.975,
-                na.rm = T
-              )
-            ),
-            col = 'grey80',
-            border = NA)
-    
-    lines(fix_RPs, model_RLs, lwd = 3, col = "grey3")
-    
-    points(
-      emp_RPs,
-      emp_RLs,
-      pch = 16,
-      col = "darkblue",
-      cex = 1.4
-    )
-    
-    ticks <- c(10, 100, 1000, 10000)
-    
-    axis(1, at = ticks, labels = as.character(ticks))
-    
-    if (i == 1) {
-      legend(
-        "topright",
-        legend = c("SPAR", "Empirical"),
-        col = c("grey3", "darkblue"),
-        lty = c(1, NA),
-        # line type for line; NA for no line
-        pch = c(NA, 16),
-        # point type for point; NA for no point
-        lwd = c(3, NA),
-        pt.cex = 1.2,
-        cex = 1.2,
-        bg = "white"
-      )
-    }
-    
-  }
-  
-  dev.off()
-  
 }
 
 # Comparing probabilities over time periods with uncertainty ---------------------------------------------
 
-l1_seq_upper = 1000
-
-l1_seq_lower = 30
+l1_seq_upper = 1500
 
 prob_RPs = 10
 
@@ -818,29 +660,11 @@ l1_upper_2.5 = matrix(NA,
                       nrow = length(l1_seq_upper),
                       ncol = length(time_periods))
 
-l1_lower_ests = matrix(NA,
-                       nrow = length(l1_seq_lower),
-                       ncol = length(time_periods))
-
-l1_lower_97.5 = matrix(NA,
-                       nrow = length(l1_seq_lower),
-                       ncol = length(time_periods))
-
-l1_lower_2.5 = matrix(NA,
-                      nrow = length(l1_seq_lower),
-                      ncol = length(time_periods))
-
 upper_surv_ests = matrix(NA, nrow = length(prob_RPs), ncol = length(time_periods))
 
 upper_surv_97.5 = matrix(NA, nrow = length(prob_RPs), ncol = length(time_periods))
 
 upper_surv_2.5 = matrix(NA, nrow = length(prob_RPs), ncol = length(time_periods))
-
-lower_cdf_ests = matrix(NA, nrow = length(prob_RPs), ncol = length(time_periods))
-
-lower_cdf_97.5 = matrix(NA, nrow = length(prob_RPs), ncol = length(time_periods))
-
-lower_cdf_2.5 = matrix(NA, nrow = length(prob_RPs), ncol = length(time_periods))
 
 for (t in 1:length(time_periods)) {
   tw_ind = t
@@ -887,16 +711,6 @@ for (t in 1:length(time_periods)) {
     return(boot_prob_mat[[boot_ind]]$l1_upper_ests)
   }, simplify = F)), 2, quantile, probs = 0.025)
   
-  l1_lower_ests[, t] = probs_list$l1_lower_ests
-  
-  l1_lower_97.5[, t] = apply(do.call(rbind, sapply(1:n_boot, function(boot_ind) {
-    return(boot_prob_mat[[boot_ind]]$l1_lower_ests)
-  }, simplify = F)), 2, quantile, probs = 0.975)
-  
-  l1_lower_2.5[, t] = apply(do.call(rbind, sapply(1:n_boot, function(boot_ind) {
-    return(boot_prob_mat[[boot_ind]]$l1_lower_ests)
-  }, simplify = F)), 2, quantile, probs = 0.025)
-  
   upper_surv_ests[, t] = probs_list$upper_surv_ests
   
   upper_surv_97.5[, t] = apply(do.call(rbind, sapply(1:n_boot, function(boot_ind) {
@@ -905,16 +719,6 @@ for (t in 1:length(time_periods)) {
   
   upper_surv_2.5[, t] = apply(do.call(rbind, sapply(1:n_boot, function(boot_ind) {
     return(boot_prob_mat[[boot_ind]]$upper_surv_ests)
-  }, simplify = F)), 2, quantile, probs = 0.025)
-  
-  lower_cdf_ests[, t] = probs_list$lower_cdf_ests
-  
-  lower_cdf_97.5[, t] = apply(do.call(rbind, sapply(1:n_boot, function(boot_ind) {
-    return(boot_prob_mat[[boot_ind]]$lower_cdf_ests)
-  }, simplify = F)), 2, quantile, probs = 0.975)
-  
-  lower_cdf_2.5[, t] = apply(do.call(rbind, sapply(1:n_boot, function(boot_ind) {
-    return(boot_prob_mat[[boot_ind]]$lower_cdf_ests)
   }, simplify = F)), 2, quantile, probs = 0.025)
   
 }
@@ -943,7 +747,7 @@ plot(
   ylim = range(0, 1 / (n_y * l1_upper_2.5[1, ]), 1 / (n_y * l1_upper_97.5[1, ]), na.rm = T),
   xlab = "Time period",
   xaxt = "n",
-  main = expression(Pr(S > 1000 ~ (m^3 / s))),
+  main = expression(Pr(S > 1500 ~ (m^3 / s))),
   ylab = "Return period (years)",
   frame.plot = F
 )
@@ -984,124 +788,6 @@ axis(
     paste0(min(time_periods[[3]]), "-", max(time_periods[[3]])),
     paste0(min(time_periods[[4]]), "-", max(time_periods[[4]]))
   )
-)
-
-dev.off()
-
-png(
-  file = paste0("../figures/rp_comparison_l1_lower.png"),
-  width = 3500,
-  height = 3500,
-  res = 400
-)
-
-par(mfrow = c(1, 1))
-
-par(mar = c(5, 5, 4, 5))
-
-options(scipen = 999)
-
-plot(
-  1:4,
-  1 / (n_y * l1_lower_ests[1, ]),
-  type = "l",
-  col = "grey3",
-  cex.lab = 1.7,
-  cex.axis = 1.6,
-  cex.main = 1.8,
-  ylim = range(0, 1 / (n_y * l1_lower_2.5[1, ]), 1 / (n_y * l1_lower_97.5[1, ]), na.rm = T),
-  xlab = "Time period",
-  xaxt = "n",
-  main = expression(Pr(S < 30 ~ (m^3 / s))),
-  ylab = "Return period (years)",
-  frame.plot = F
-)
-
-mtext(
-  "(b)",
-  side = 3,
-  line = 1,
-  adj = 0,
-  cex = 2
-)
-
-polygon(c(rev(1:4), 1:4),
-        c(rev(1 / (n_y * l1_lower_2.5[1, ])), 1 / (n_y * l1_lower_97.5[1, ])),
-        col = 'grey80',
-        border = NA)
-
-lines(1:4,
-      1 / (n_y * l1_lower_ests[1, ]),
-      lwd = 3,
-      col = "grey3")
-
-points(
-  1:4,
-  1 / (n_y * l1_lower_ests[1, ]),
-  pch = 16,
-  col = "grey3",
-  cex = 1.6
-)
-
-axis(
-  1,
-  at = 1:4,
-  cex.axis = 1.6,
-  labels = c(
-    paste0(min(time_periods[[1]]), "-", max(time_periods[[1]])),
-    paste0(min(time_periods[[2]]), "-", max(time_periods[[2]])),
-    paste0(min(time_periods[[3]]), "-", max(time_periods[[3]])),
-    paste0(min(time_periods[[4]]), "-", max(time_periods[[4]]))
-  )
-)
-
-par(fig = c(0.3, 0.9, 0.4, 1), new = TRUE)  # Define inset position (x1, x2, y1, y2)
-par(xpd = FALSE)
-zoom_x <- 2:4  # Define x range for zoom
-zoom_y <- range(0, 1 / (n_y * l1_lower_2.5[1, 3:4]), 1 / (n_y * l1_lower_97.5[1, 3:4]), na.rm = TRUE)  # Define y range for zoom
-
-plot(
-  zoom_x,
-  1 / (n_y * l1_lower_ests[1, zoom_x]),
-  type = "l",
-  col = "grey3",
-  cex.lab = 1.4,
-  cex.axis = 1.4,
-  cex.main = 1,
-  ylim = zoom_y,
-  xlim = range(4, 3),
-  xlab = "",
-  xaxt = "n",
-  ylab = "",
-  main = "",
-  frame.plot = TRUE
-)
-
-polygon(c(rev(zoom_x), zoom_x),
-        c(rev(1 / (n_y * l1_lower_2.5[1, zoom_x])), 1 / (n_y * l1_lower_97.5[1, zoom_x])),
-        col = 'grey80',
-        border = NA)
-lines(zoom_x,
-      1 / (n_y * l1_lower_ests[1, zoom_x]),
-      lwd = 2,
-      col = "grey3")
-points(
-  zoom_x,
-  1 / (n_y * l1_lower_ests[1, zoom_x]),
-  pch = 16,
-  col = "grey3",
-  cex = 1.2
-)
-
-axis(
-  1,
-  at = 3:4,
-  cex.axis = 1.4,
-  labels = c(paste0(
-    min(time_periods[[3]]), "-", max(time_periods[[3]])
-  ), paste0(
-    min(time_periods[[4]]), "-", max(time_periods[[4]])
-  ))
 )
 
 dev.off()
@@ -1160,77 +846,6 @@ lines(1:4,
 points(
   1:4,
   1 / (n_y * upper_surv_ests[1, ]),
-  pch = 16,
-  col = "grey3",
-  cex = 1.6
-)
-
-axis(
-  1,
-  at = 1:4,
-  cex.axis = 1.6,
-  labels = c(
-    paste0(min(time_periods[[1]]), "-", max(time_periods[[1]])),
-    paste0(min(time_periods[[2]]), "-", max(time_periods[[2]])),
-    paste0(min(time_periods[[3]]), "-", max(time_periods[[3]])),
-    paste0(min(time_periods[[4]]), "-", max(time_periods[[4]]))
-  )
-)
-
-dev.off()
-
-png(
-  file = paste0("../figures/rp_comparison_lower_cdf.png"),
-  width = 3500,
-  height = 3500,
-  res = 400
-)
-
-par(mfrow = c(1, 1))
-
-par(mar = c(5, 5, 4, 5))
-
-options(scipen = 999)
-
-plot(
-  1:4,
-  1 / (n_y * lower_cdf_ests[1, ]),
-  type = "l",
-  col = "grey3",
-  cex.lab = 1.7,
-  cex.axis = 1.6,
-  cex.main = 1.8,
-  ylim = range(0, 1 / (n_y * lower_cdf_2.5[1, ]), 1 / (n_y * lower_cdf_97.5[1, ]), na.rm = T),
-  xlab = "Time period",
-  xaxt = "n",
-  main = expression(Pr(X[i] < x[i]^{
-    1 / N
-  } * ", i = 1, ..., 4") * ", N = 10 (years)"),
-  ylab = "Return period (years)",
-  frame.plot = F
-)
-
-mtext(
-  "(d)",
-  side = 3,
-  line = 1,
-  adj = 0,
-  cex = 2
-)
-
-polygon(c(rev(1:4), 1:4),
-        c(rev(1 / (n_y * lower_cdf_2.5[1, ])), 1 / (n_y * lower_cdf_97.5[1, ])),
-        col = 'grey80',
-        border = NA)
-
-lines(1:4,
-      1 / (n_y * lower_cdf_ests[1, ]),
-      lwd = 3,
-      col = "grey3")
-
-points(
-  1:4,
-  1 / (n_y * lower_cdf_ests[1, ]),
   pch = 16,
   col = "grey3",
   cex = 1.6
